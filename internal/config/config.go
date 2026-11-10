@@ -23,6 +23,7 @@ type Config struct {
 	Listen         string   `json:"listen"`
 	PermissionMode string   `json:"permissionMode"`
 	MaxTurns       int      `json:"maxTurns"`
+	CompactTokens  int      `json:"compactTokens"`
 	Provider       Provider `json:"provider"`
 }
 
@@ -43,6 +44,7 @@ func Defaults(dataDir string) Config {
 		Listen:         "127.0.0.1:47123",
 		PermissionMode: "ask",
 		MaxTurns:       24,
+		CompactTokens:  48000,
 		Provider: Provider{
 			Kind:      "mock",
 			BaseURL:   "",
@@ -90,6 +92,7 @@ func (c Config) Masked() map[string]any {
 		"listen":         c.Listen,
 		"permissionMode": c.PermissionMode,
 		"maxTurns":       c.MaxTurns,
+		"compactTokens":  c.CompactTokens,
 		"provider": map[string]any{
 			"kind":      c.Provider.Kind,
 			"baseUrl":   c.Provider.BaseURL,
@@ -133,6 +136,9 @@ func Normalize(c *Config) {
 	}
 	if c.MaxTurns <= 0 {
 		c.MaxTurns = 24
+	}
+	if c.CompactTokens < 0 {
+		c.CompactTokens = 0
 	}
 	c.Provider.Kind = strings.ToLower(strings.TrimSpace(c.Provider.Kind))
 	if c.Provider.Kind == "" {

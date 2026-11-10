@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -501,6 +502,123 @@ func (p *todoProvider) Stream(ctx context.Context, req provider.Request) (<-chan
 		emit(ctx, ch, provider.Delta{Type: "done"})
 	}()
 	return ch, nil
+}
+
+func TestCompactionSummarizesOlderHistory(t *testing.T) {
+	project := t.TempDir()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ws, err := st.CreateWorkspace("demo", []domain.Folder{{Path: project}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := st.CreateSession(ws.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := []struct {
+		role string
+		text string
+	}{
+		{"user", "OLD-MARKER one"},
+		{"assistant", "reply one"},
+		{"user", "two"},
+		{"assistant", "reply two"},
+		{"user", "three"},
+		{"assistant", "reply three"},
+		{"user", "four"},
+		{"assistant", "reply four"},
+	}
+	for _, item := range seed {
+		if item.role == "user" {
+			_, err = st.Append(sess.ID, domain.EventUserMessage, "", domain.UserMessageData{Text: item.text})
+		} else {
+			_, err = st.Append(sess.ID, domain.EventAssistantMessage, "", domain.AssistantMessageData{Text: item.text})
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cfg := config.Defaults(t.TempDir())
+	cfg.PermissionMode = "yolo"
+	cfg.CompactTokens = 1
+	prov := &compactProvider{}
+	ag := New(st, cfg, prov)
+	if err := ag.Send(context.Background(), sess.ID, "new question"); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, st, sess.ID)
+
+	events, err := st.EventsAfter(sess.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compacted domain.CompactedData
+	found := false
+	for _, ev := range events {
+		if ev.Type != domain.EventSessionCompacted {
+			continue
+		}
+		if err := decode(ev.Data, &compacted); err != nil {
+			t.Fatal(err)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("history was not compacted")
+	}
+	if compacted.UpToSeq <= 0 || compacted.Messages == 0 {
+		t.Fatalf("unexpected compaction boundary: %+v", compacted)
+	}
+
+	system, messages := prov.recorded()
+	if !strings.Contains(system, "# Session summary") || !strings.Contains(system, "numbered notes") {
+		t.Fatalf("summary was not injected into the system prompt: %q", system)
+	}
+	for _, message := range messages {
+		for _, block := range message.Content {
+			if strings.Contains(block.Text, "OLD-MARKER") {
+				t.Fatal("compacted messages leaked into the next request")
+			}
+		}
+	}
+}
+
+type compactProvider struct {
+	mu       sync.Mutex
+	system   string
+	messages []provider.Message
+}
+
+func (p *compactProvider) Name() string { return "fake" }
+
+func (p *compactProvider) Stream(ctx context.Context, req provider.Request) (<-chan provider.Delta, error) {
+	text := "ok"
+	if strings.Contains(req.System, "compact the conversation history") {
+		text = "Summary: the user reviewed numbered notes up to four."
+	} else {
+		p.mu.Lock()
+		p.system = req.System
+		p.messages = req.Messages
+		p.mu.Unlock()
+	}
+	ch := make(chan provider.Delta, 2)
+	go func() {
+		defer close(ch)
+		emit(ctx, ch, provider.Delta{Type: "text", Text: text})
+		emit(ctx, ch, provider.Delta{Type: "done"})
+	}()
+	return ch, nil
+}
+
+func (p *compactProvider) recorded() (string, []provider.Message) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.system, p.messages
 }
 
 func TestCheckpointRevertRestoresFile(t *testing.T) {

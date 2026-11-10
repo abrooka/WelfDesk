@@ -61,6 +61,7 @@ Server flags:
   --api-key <key>       provider API key
   --model <name>        model name
   --max-turns <n>       agent loop turn limit (default 24)
+  --compact-tokens <n>  compact history above this token estimate (0 disables)
 `)
 }
 
@@ -78,6 +79,7 @@ func runServer(args []string) error {
 		apiKey     = fs.String("api-key", "", "provider API key")
 		model      = fs.String("model", "", "model name")
 		maxTurns   = fs.Int("max-turns", 0, "agent loop turn limit")
+		compact    = fs.Int("compact-tokens", -1, "compact history above this token estimate")
 	)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -121,6 +123,9 @@ func runServer(args []string) error {
 	}
 	if *maxTurns > 0 {
 		cfg.MaxTurns = *maxTurns
+	}
+	if *compact >= 0 {
+		cfg.CompactTokens = *compact
 	}
 	config.Normalize(&cfg)
 

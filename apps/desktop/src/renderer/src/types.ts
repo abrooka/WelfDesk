@@ -118,6 +118,7 @@ export interface Config {
   listen: string
   permissionMode: 'ask' | 'acceptEdits' | 'yolo'
   maxTurns: number
+  compactTokens: number
   provider: ProviderConfig
 }
 
@@ -166,6 +167,12 @@ export interface TodoItem {
 
 export interface TodosData {
   todos: TodoItem[]
+}
+
+export interface CompactedData {
+  summary: string
+  upToSeq: number
+  messages: number
 }
 
 export interface Checkpoint {

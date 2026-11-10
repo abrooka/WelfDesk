@@ -6,6 +6,7 @@ import { clockTime, duration, parseArgs, toolSummary } from '../lib/format'
 import type { LiveText } from '../hooks/useSessionStream'
 import type {
   AssistantMessageData,
+  CompactedData,
   ErrorData,
   PermissionRequestData,
   PermissionResolvedData,
@@ -187,6 +188,14 @@ export function Timeline({
                 </div>
               )
             }
+            case 'session.compacted': {
+              const data = event.data as CompactedData
+              return (
+                <div key={event.id} id={`ev-${event.id}`} className="timeline-item">
+                  <CompactedCard data={data} />
+                </div>
+              )
+            }
             case 'error': {
               const data = event.data as ErrorData
               return (
@@ -251,6 +260,23 @@ function AssistantAvatar() {
         <path d="M4 9c4-3.6 12 3.6 16 0" />
         <path d="M4 15c4-3.6 12 3.6 16 0" />
       </svg>
+    </div>
+  )
+}
+
+function CompactedCard({ data }: { data?: CompactedData }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="compact-card">
+      <button className="compact-head" onClick={() => setOpen((value) => !value)}>
+        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={12} />
+        <Icon name="layers" size={13} />
+        <span>Earlier conversation compacted</span>
+        <span className="compact-meta">
+          {data?.messages ?? 0} message{data?.messages === 1 ? '' : 's'}
+        </span>
+      </button>
+      {open && <p className="compact-summary selectable">{data?.summary || 'No summary was recorded.'}</p>}
     </div>
   )
 }

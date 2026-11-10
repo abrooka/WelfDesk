@@ -208,12 +208,13 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 	toolDefs := append(registry.Definitions(), askUserTool(), todoTool(), taskTool())
 
 	for turn := 0; turn < cfg.MaxTurns; turn++ {
-		history, err := a.history(sessionID)
+		history, summary, err := a.history(sessionID)
 		if err != nil {
 			fail(err.Error())
 			return
 		}
-		system := baseSystem + planPrompt(a.Todos(sessionID))
+		history, summary = a.maybeCompact(ctx, sessionID, runID, cfg, prov, history, summary)
+		system := baseSystem + planPrompt(a.Todos(sessionID)) + summaryPrompt(summary)
 		reqID := newID()
 		snapshot := requestSnapshot{
 			RequestID: reqID,
@@ -608,12 +609,33 @@ func (a *Agent) ResolvePermission(sessionID, requestID, decision string) error {
 	return err
 }
 
-func (a *Agent) history(sessionID string) ([]provider.Message, error) {
+type contextMessage struct {
+	seq int64
+	msg provider.Message
+}
+
+func (a *Agent) history(sessionID string) ([]provider.Message, string, error) {
 	events, err := a.store.EventsAfter(sessionID, 0)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	var messages []provider.Message
+	boundary, summary := compactedBoundary(events)
+	filtered := make([]domain.Event, 0, len(events))
+	for _, ev := range events {
+		if ev.Seq > boundary {
+			filtered = append(filtered, ev)
+		}
+	}
+	context := buildContext(filtered)
+	messages := make([]provider.Message, 0, len(context))
+	for _, item := range context {
+		messages = append(messages, item.msg)
+	}
+	return messages, summary, nil
+}
+
+func buildContext(events []domain.Event) []contextMessage {
+	var out []contextMessage
 	for _, ev := range events {
 		switch ev.Type {
 		case domain.EventUserMessage:
@@ -621,9 +643,12 @@ func (a *Agent) history(sessionID string) ([]provider.Message, error) {
 			if decode(ev.Data, &data) != nil || data.Text == "" {
 				continue
 			}
-			messages = append(messages, provider.Message{
-				Role:    "user",
-				Content: []provider.Block{{Type: provider.BlockText, Text: data.Text}},
+			out = append(out, contextMessage{
+				seq: ev.Seq,
+				msg: provider.Message{
+					Role:    "user",
+					Content: []provider.Block{{Type: provider.BlockText, Text: data.Text}},
+				},
 			})
 		case domain.EventAssistantMessage:
 			var data domain.AssistantMessageData
@@ -651,7 +676,7 @@ func (a *Agent) history(sessionID string) ([]provider.Message, error) {
 			if len(blocks) == 0 {
 				continue
 			}
-			messages = append(messages, provider.Message{Role: "assistant", Content: blocks})
+			out = append(out, contextMessage{seq: ev.Seq, msg: provider.Message{Role: "assistant", Content: blocks}})
 		case domain.EventToolResult:
 			var data domain.ToolResultData
 			if decode(ev.Data, &data) != nil {
@@ -665,17 +690,38 @@ func (a *Agent) history(sessionID string) ([]provider.Message, error) {
 					IsError:   data.IsError,
 				},
 			}
-			if n := len(messages); n > 0 && messages[n-1].Role == "user" && isToolResultMessage(messages[n-1]) {
-				messages[n-1].Content = append(messages[n-1].Content, block)
+			if n := len(out); n > 0 && out[n-1].msg.Role == "user" && isToolResultMessage(out[n-1].msg) {
+				out[n-1].msg.Content = append(out[n-1].msg.Content, block)
+				out[n-1].seq = ev.Seq
 			} else {
-				messages = append(messages, provider.Message{
-					Role:    "user",
-					Content: []provider.Block{block},
+				out = append(out, contextMessage{
+					seq: ev.Seq,
+					msg: provider.Message{
+						Role:    "user",
+						Content: []provider.Block{block},
+					},
 				})
 			}
 		}
 	}
-	return messages, nil
+	return out
+}
+
+func compactedBoundary(events []domain.Event) (int64, string) {
+	boundary := int64(0)
+	summary := ""
+	for _, ev := range events {
+		if ev.Type != domain.EventSessionCompacted {
+			continue
+		}
+		var data domain.CompactedData
+		if decode(ev.Data, &data) != nil || data.UpToSeq <= boundary {
+			continue
+		}
+		boundary = data.UpToSeq
+		summary = data.Summary
+	}
+	return boundary, summary
 }
 
 func isToolResultMessage(message provider.Message) bool {

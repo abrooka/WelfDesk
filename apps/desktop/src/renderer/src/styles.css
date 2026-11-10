@@ -1797,6 +1797,48 @@ button:disabled {
   margin-top: 1px;
 }
 
+/* Compaction marker */
+
+.compact-card {
+  margin-left: 35px;
+  max-width: 660px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.compact-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.compact-head:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.compact-meta {
+  margin-left: auto;
+  font-size: 9.5px;
+}
+
+.compact-summary {
+  margin: 0;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
 .timeline-tail {
   margin-left: 35px;
   font-size: 10px;

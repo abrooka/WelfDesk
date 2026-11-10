@@ -76,6 +76,7 @@ const (
 	EventRequestCompleted   = "request.completed"
 	EventCheckpointReverted = "checkpoint.reverted"
 	EventTodosUpdated       = "todos.updated"
+	EventSessionCompacted   = "session.compacted"
 	EventError              = "error"
 )
 
@@ -93,6 +94,12 @@ type TodoItem struct {
 
 type TodosData struct {
 	Todos []TodoItem `json:"todos"`
+}
+
+type CompactedData struct {
+	Summary  string `json:"summary"`
+	UpToSeq  int64  `json:"upToSeq"`
+	Messages int    `json:"messages"`
 }
 
 type UserMessageData struct {
