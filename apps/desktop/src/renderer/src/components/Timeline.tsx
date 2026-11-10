@@ -282,6 +282,7 @@ function CompactedCard({ data }: { data?: CompactedData }) {
 }
 
 function toolIcon(name: string): string {
+  if (name.startsWith('mcp__')) return 'network'
   switch (name) {
     case 'read_file':
       return 'eye'
@@ -302,6 +303,12 @@ function toolIcon(name: string): string {
     default:
       return 'file'
   }
+}
+
+function toolLabel(name: string): string {
+  if (!name.startsWith('mcp__')) return name
+  const parts = name.split('__')
+  return parts.length > 2 ? `${parts[1]} / ${parts.slice(2).join('__')}` : name
 }
 
 function ToolCard({
@@ -345,7 +352,7 @@ function ToolCard({
         <span className="tool-icon">
           <Icon name={toolIcon(name)} size={14} />
         </span>
-        <span className="tool-name">{name}</span>
+        <span className="tool-name">{toolLabel(name)}</span>
         <span className="tool-summary">{summary}</span>
         {result && <span className="tool-duration">{duration(result.durationMs)}</span>}
         <span className={`tool-state ${state}`}>

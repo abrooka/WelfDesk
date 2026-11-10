@@ -5,6 +5,12 @@ import { Icon } from './Icon'
 import { Modal } from './Modal'
 import type { Config, Health } from '../types'
 
+type McpDraft = {
+  name: string
+  command: string
+  argsText: string
+}
+
 const PERMISSION_MODES = [
   {
     value: 'ask',
@@ -47,6 +53,7 @@ export function SettingsDialog({
   const [maxTokens, setMaxTokens] = useState(8192)
   const [maxTurns, setMaxTurns] = useState(24)
   const [permissionMode, setPermissionMode] = useState('ask')
+  const [mcpServers, setMcpServers] = useState<McpDraft[]>([])
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -57,14 +64,53 @@ export function SettingsDialog({
     setMaxTokens(config.provider.maxTokens)
     setMaxTurns(config.maxTurns)
     setPermissionMode(config.permissionMode)
+    setMcpServers(
+      Object.entries(config.mcpServers ?? {})
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, server]) => ({ name, command: server.command, argsText: server.args.join(' ') })),
+    )
   }, [config])
 
+  const updateMcp = (index: number, patch: Partial<McpDraft>) => {
+    setMcpServers((current) => current.map((server, i) => (i === index ? { ...server, ...patch } : server)))
+  }
+
   const save = async () => {
+    const rows = mcpServers.filter((server) => server.name.trim() !== '' || server.command.trim() !== '')
+    const next: Record<string, { command: string; args: string[] }> = {}
+    for (const row of rows) {
+      const name = row.name.trim()
+      if (name === '' || row.command.trim() === '') {
+        onNotify('Every MCP server needs a name and a command', 'error')
+        return
+      }
+      if (next[name]) {
+        onNotify(`MCP server "${name}" is listed twice`, 'error')
+        return
+      }
+      next[name] = {
+        command: row.command.trim(),
+        args: row.argsText.split(/\s+/).filter(Boolean),
+      }
+    }
+    const patch: Record<string, unknown> = { permissionMode, maxTurns, provider: { kind, baseUrl, model, maxTokens } }
+    if (apiKey.trim() !== '') (patch.provider as Record<string, unknown>).apiKey = apiKey.trim()
+    if (config) {
+      const current = config.mcpServers ?? {}
+      const unchanged =
+        Object.keys(next).length === Object.keys(current).length &&
+        Object.entries(next).every(
+          ([name, server]) =>
+            current[name] &&
+            current[name].command === server.command &&
+            JSON.stringify(current[name].args) === JSON.stringify(server.args),
+        )
+      if (!unchanged) patch.mcpServers = next
+    }
+
     setSaving(true)
     try {
-      const provider: Record<string, unknown> = { kind, baseUrl, model, maxTokens }
-      if (apiKey.trim() !== '') provider.apiKey = apiKey.trim()
-      const updated = await api.updateConfig({ permissionMode, maxTurns, provider })
+      const updated = await api.updateConfig(patch)
       onSaved(updated)
       onNotify('Settings saved')
       onClose()
@@ -181,6 +227,66 @@ export function SettingsDialog({
           )}
         </section>
       </div>
+
+      <section className="settings-section settings-mcp">
+        <h3>MCP servers</h3>
+        <p className="settings-hint">
+          Run Model Context Protocol servers over stdio. Their tools join the agent and follow the permission mode.
+          Environment variables and quoted arguments are set in config.json.
+        </p>
+        <div className="mcp-list">
+          {mcpServers.map((server, index) => {
+            const status = health?.mcp?.find((item) => item.name === server.name.trim())
+            return (
+              <div className="mcp-row" key={index}>
+                <div className="mcp-fields">
+                  <input
+                    aria-label="Server name"
+                    value={server.name}
+                    onChange={(event) => updateMcp(index, { name: event.target.value })}
+                    placeholder="name"
+                    spellCheck={false}
+                  />
+                  <input
+                    aria-label="Command"
+                    value={server.command}
+                    onChange={(event) => updateMcp(index, { command: event.target.value })}
+                    placeholder="command, e.g. npx"
+                    spellCheck={false}
+                  />
+                  <input
+                    aria-label="Arguments"
+                    value={server.argsText}
+                    onChange={(event) => updateMcp(index, { argsText: event.target.value })}
+                    placeholder="arguments"
+                    spellCheck={false}
+                  />
+                  <button
+                    className="icon-btn"
+                    title="Remove server"
+                    onClick={() => setMcpServers((current) => current.filter((_, i) => i !== index))}
+                  >
+                    <Icon name="close" size={13} />
+                  </button>
+                </div>
+                {status && (
+                  <span className={`mcp-status ${status.error ? 'error' : ''}`}>
+                    {status.error ?? `${status.tools} ${status.tools === 1 ? 'tool' : 'tools'}`}
+                  </span>
+                )}
+                {!status && server.name.trim() !== '' && <span className="mcp-status">Not connected</span>}
+              </div>
+            )
+          })}
+          {mcpServers.length === 0 && <p className="settings-hint">No servers configured.</p>}
+        </div>
+        <button
+          className="link-btn"
+          onClick={() => setMcpServers((current) => [...current, { name: '', command: '', argsText: '' }])}
+        >
+          <Icon name="plus" size={13} /> Add server
+        </button>
+      </section>
 
       <section className="settings-section settings-appearance">
         <h3>Appearance</h3>

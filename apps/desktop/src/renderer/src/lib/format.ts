@@ -37,6 +37,11 @@ export function parseArgs(raw: string | undefined): Record<string, unknown> | nu
 
 export function toolSummary(name: string, raw: string | undefined): string {
   const args = parseArgs(raw)
+  if (name.startsWith('mcp__')) {
+    const label = name.split('__').slice(2).join('__') || name
+    const first = args ? Object.values(args).find((value) => typeof value === 'string' && value.trim() !== '') : undefined
+    return typeof first === 'string' ? `${label}: ${firstLine(first, 60)}` : label
+  }
   if (!args) return firstLine(raw ?? '', 80)
   const pick = (key: string) => (typeof args[key] === 'string' ? (args[key] as string) : '')
   switch (name) {

@@ -1,8 +1,11 @@
 package agent
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -750,6 +753,159 @@ func (p *memoryProvider) lastSystem() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.system
+}
+
+func TestMCPToolRunsThroughAgent(t *testing.T) {
+	project := t.TempDir()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ws, err := st.CreateWorkspace("demo", []domain.Folder{{Path: project}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := st.CreateSession(ws.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(t.TempDir())
+	cfg.PermissionMode = "yolo"
+	cfg.MCPServers = map[string]config.MCPServer{
+		"fake": {
+			Command: os.Args[0],
+			Args:    []string{"-test.run=TestMCPHelperProcess"},
+			Env:     map[string]string{"GO_WANT_MCP_HELPER": "1"},
+		},
+	}
+	ag := New(st, cfg, &mcpProvider{})
+	ag.StartMCP(context.Background())
+	t.Cleanup(ag.CloseMCP)
+
+	status := ag.MCPStatus()
+	if len(status) != 1 || status[0].Tools != 1 {
+		t.Fatalf("unexpected MCP status: %+v", status)
+	}
+	if names := ag.MCPToolNames(); len(names) != 1 || names[0] != "mcp__fake__echo" {
+		t.Fatalf("unexpected MCP tool names: %+v", names)
+	}
+
+	if err := ag.Send(context.Background(), sess.ID, "call the echo server"); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, st, sess.ID)
+
+	events, err := st.EventsAfter(sess.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result domain.ToolResultData
+	found := false
+	for _, ev := range events {
+		if ev.Type != domain.EventToolResult {
+			continue
+		}
+		var data domain.ToolResultData
+		if err := decode(ev.Data, &data); err != nil {
+			t.Fatal(err)
+		}
+		if data.Name == "mcp__fake__echo" {
+			result = data
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the MCP tool was not executed")
+	}
+	if result.IsError || result.Output != "echo: ping" {
+		t.Fatalf("unexpected MCP tool result: %+v", result)
+	}
+}
+
+type mcpProvider struct{}
+
+func (p *mcpProvider) Name() string { return "fake" }
+
+func (p *mcpProvider) Stream(ctx context.Context, req provider.Request) (<-chan provider.Delta, error) {
+	hasResult := false
+	for _, message := range req.Messages {
+		for _, block := range message.Content {
+			if block.Type == provider.BlockToolResult {
+				hasResult = true
+			}
+		}
+	}
+	ch := make(chan provider.Delta, 4)
+	go func() {
+		defer close(ch)
+		if hasResult {
+			emit(ctx, ch, provider.Delta{Type: "text", Text: "done"})
+		} else {
+			emit(ctx, ch, provider.Delta{Type: "tool_call", ToolCall: &provider.ToolCall{
+				ID:        "mcp-1",
+				Name:      "mcp__fake__echo",
+				Arguments: `{"text":"ping"}`,
+			}})
+		}
+		emit(ctx, ch, provider.Delta{Type: "done"})
+	}()
+	return ch, nil
+}
+
+func TestMCPHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_MCP_HELPER") != "1" {
+		return
+	}
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	encoder := json.NewEncoder(os.Stdout)
+	for scanner.Scan() {
+		var message struct {
+			ID     int64           `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &message) != nil {
+			continue
+		}
+		switch message.Method {
+		case "initialize":
+			_ = encoder.Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      message.ID,
+				"result": map[string]any{
+					"protocolVersion": "2025-06-18",
+					"capabilities":    map[string]any{"tools": map[string]any{}},
+					"serverInfo":      map[string]any{"name": "fake", "version": "1"},
+				},
+			})
+		case "notifications/initialized":
+		case "tools/list":
+			_ = encoder.Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      message.ID,
+				"result": map[string]any{"tools": []any{map[string]any{
+					"name":        "echo",
+					"description": "Echo text back.",
+					"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"text": map[string]any{"type": "string"}}},
+				}}},
+			})
+		case "tools/call":
+			var params struct {
+				Arguments map[string]any `json:"arguments"`
+			}
+			_ = json.Unmarshal(message.Params, &params)
+			_ = encoder.Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      message.ID,
+				"result": map[string]any{
+					"content": []any{map[string]any{"type": "text", "text": "echo: " + fmt.Sprint(params.Arguments["text"])}},
+				},
+			})
+		}
+	}
+	os.Exit(0)
 }
 
 func TestCheckpointRevertRestoresFile(t *testing.T) {

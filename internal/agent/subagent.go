@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/weftdesk/weft/internal/domain"
+	"github.com/weftdesk/weft/internal/mcp"
 	"github.com/weftdesk/weft/internal/provider"
 	"github.com/weftdesk/weft/internal/tools"
 )
@@ -72,7 +73,8 @@ func (a *Agent) runTask(ctx context.Context, sessionID, runID, args string, resu
 		roots = append(roots, folder.Path)
 	}
 	registry := tools.NewRegistry(roots)
-	toolDefs := registry.Definitions()
+	mcpSet := a.mcpClient()
+	toolDefs := append(registry.Definitions(), mcpToolDefs(mcpSet)...)
 	system := systemPrompt(ws, cfg.DataDir) + memoryPrompt(a.memoryText()) + "\n# Subagent\n\n" +
 		"You are a subagent working for another Weft agent. Complete the task on your own and report back with a concise, factual summary: what you found or changed, relevant file paths, and anything the parent agent must know. The user does not see your conversation, so put everything important in the report. Do not ask the user questions.\n"
 
@@ -137,7 +139,7 @@ func (a *Agent) runTask(ctx context.Context, sessionID, runID, args string, resu
 				result.Output = "Run cancelled."
 				return
 			}
-			output, isError := a.subagentTool(ctx, sessionID, runID, registry, call)
+			output, isError := a.subagentTool(ctx, sessionID, runID, registry, mcpSet, call)
 			history = append(history, provider.Message{
 				Role: "user",
 				Content: []provider.Block{{
@@ -161,7 +163,7 @@ func (a *Agent) runTask(ctx context.Context, sessionID, runID, args string, resu
 	result.Output = report
 }
 
-func (a *Agent) subagentTool(ctx context.Context, sessionID, runID string, registry *tools.Registry, call provider.ToolCall) (string, bool) {
+func (a *Agent) subagentTool(ctx context.Context, sessionID, runID string, registry *tools.Registry, mcpSet *mcp.Set, call provider.ToolCall) (string, bool) {
 	switch call.Name {
 	case "task", "todo_write", "ask_user", "remember":
 		return fmt.Sprintf("%s is not available to a subagent", call.Name), true
@@ -173,20 +175,28 @@ func (a *Agent) subagentTool(ctx context.Context, sessionID, runID string, regis
 		}
 		return reason, true
 	}
-	out, err := registry.Execute(ctx, call.Name, call.Arguments)
-	output := out.Output
-	isError := out.IsError
-	if err != nil {
-		isError = true
-		if output == "" {
-			output = err.Error()
-		} else {
-			output += "\n" + err.Error()
+	var output string
+	var isError bool
+	if strings.HasPrefix(call.Name, "mcp__") {
+		result := domain.ToolResultData{}
+		a.callMCP(ctx, mcpSet, call, &result)
+		output, isError = result.Output, result.IsError
+	} else {
+		out, err := registry.Execute(ctx, call.Name, call.Arguments)
+		output = out.Output
+		isError = out.IsError
+		if err != nil {
+			isError = true
+			if output == "" {
+				output = err.Error()
+			} else {
+				output += "\n" + err.Error()
+			}
 		}
-	}
-	if !isError && out.Snapshot != nil {
-		if err := a.saveCheckpoint(sessionID, runID, call, out); err != nil {
-			output += "\n[checkpoint could not be saved: " + err.Error() + "]"
+		if !isError && out.Snapshot != nil {
+			if err := a.saveCheckpoint(sessionID, runID, call, out); err != nil {
+				output += "\n[checkpoint could not be saved: " + err.Error() + "]"
+			}
 		}
 	}
 	if len(output) > 100_000 {

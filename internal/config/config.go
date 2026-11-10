@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -18,13 +19,20 @@ type Provider struct {
 	MaxTokens int    `json:"maxTokens"`
 }
 
+type MCPServer struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+}
+
 type Config struct {
-	DataDir        string   `json:"dataDir"`
-	Listen         string   `json:"listen"`
-	PermissionMode string   `json:"permissionMode"`
-	MaxTurns       int      `json:"maxTurns"`
-	CompactTokens  int      `json:"compactTokens"`
-	Provider       Provider `json:"provider"`
+	DataDir        string               `json:"dataDir"`
+	Listen         string               `json:"listen"`
+	PermissionMode string               `json:"permissionMode"`
+	MaxTurns       int                  `json:"maxTurns"`
+	CompactTokens  int                  `json:"compactTokens"`
+	Provider       Provider             `json:"provider"`
+	MCPServers     map[string]MCPServer `json:"mcpServers,omitempty"`
 }
 
 func DefaultDataDir() string {
@@ -100,7 +108,29 @@ func (c Config) Masked() map[string]any {
 			"maxTokens": c.Provider.MaxTokens,
 			"keySet":    c.Provider.APIKey != "",
 		},
+		"mcpServers": maskedMCPServers(c.MCPServers),
 	}
+}
+
+func maskedMCPServers(servers map[string]MCPServer) map[string]any {
+	out := make(map[string]any, len(servers))
+	for name, server := range servers {
+		keys := make([]string, 0, len(server.Env))
+		for key := range server.Env {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		args := server.Args
+		if args == nil {
+			args = []string{}
+		}
+		out[name] = map[string]any{
+			"command": server.Command,
+			"args":    args,
+			"envKeys": keys,
+		}
+	}
+	return out
 }
 
 func applyEnv(c *Config) {
@@ -161,4 +191,16 @@ func Normalize(c *Config) {
 		}
 	}
 	c.Provider.BaseURL = strings.TrimRight(c.Provider.BaseURL, "/")
+	if c.MCPServers != nil {
+		servers := make(map[string]MCPServer, len(c.MCPServers))
+		for name, server := range c.MCPServers {
+			name = strings.TrimSpace(name)
+			server.Command = strings.TrimSpace(server.Command)
+			if name == "" || server.Command == "" {
+				continue
+			}
+			servers[name] = server
+		}
+		c.MCPServers = servers
+	}
 }

@@ -113,6 +113,18 @@ export interface ProviderConfig {
   keySet: boolean
 }
 
+export interface MCPServerConfig {
+  command: string
+  args: string[]
+  envKeys: string[]
+}
+
+export interface MCPServerStatus {
+  name: string
+  tools: number
+  error?: string
+}
+
 export interface Config {
   dataDir: string
   listen: string
@@ -120,6 +132,7 @@ export interface Config {
   maxTurns: number
   compactTokens: number
   provider: ProviderConfig
+  mcpServers: Record<string, MCPServerConfig>
 }
 
 export interface Health {
@@ -128,6 +141,7 @@ export interface Health {
   version: string
   provider: string
   model: string
+  mcp: MCPServerStatus[]
 }
 
 export interface RequestRecord {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/weftdesk/weft/internal/config"
 	"github.com/weftdesk/weft/internal/domain"
+	"github.com/weftdesk/weft/internal/mcp"
 	"github.com/weftdesk/weft/internal/provider"
 	"github.com/weftdesk/weft/internal/store"
 	"github.com/weftdesk/weft/internal/tools"
@@ -58,6 +59,9 @@ type Agent struct {
 	questions map[string]pendingQuestion
 
 	memMu sync.Mutex
+
+	mcpMu  sync.RWMutex
+	mcpSet *mcp.Set
 }
 
 type pendingQuestion struct {
@@ -206,8 +210,10 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 		roots = append(roots, folder.Path)
 	}
 	registry := tools.NewRegistry(roots)
+	mcpSet := a.mcpClient()
 	baseSystem := systemPrompt(ws, cfg.DataDir)
 	toolDefs := append(registry.Definitions(), askUserTool(), todoTool(), taskTool(), rememberTool())
+	toolDefs = append(toolDefs, mcpToolDefs(mcpSet)...)
 
 	for turn := 0; turn < cfg.MaxTurns; turn++ {
 		history, summary, err := a.history(sessionID)
@@ -289,7 +295,7 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 				stop("Run cancelled")
 				return
 			}
-			a.executeTool(ctx, sessionID, runID, registry, call)
+			a.executeTool(ctx, sessionID, runID, registry, mcpSet, call)
 		}
 	}
 
@@ -330,7 +336,7 @@ func (a *Agent) stream(ctx context.Context, sessionID, runID string, req provide
 	return text.String(), calls, usage, nil
 }
 
-func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, registry *tools.Registry, call provider.ToolCall) {
+func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, registry *tools.Registry, mcpSet *mcp.Set, call provider.ToolCall) {
 	callData := domain.ToolCallData{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
 	_, _ = a.store.Append(sessionID, domain.EventToolCall, runID, callData)
 
@@ -347,6 +353,17 @@ func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, regist
 	case call.Name == "ask_user":
 		a.askUser(ctx, sessionID, runID, call, &result, started)
 		return
+	case strings.HasPrefix(call.Name, "mcp__"):
+		allowed, reason := a.authorize(ctx, sessionID, runID, call)
+		if !allowed {
+			result.IsError = true
+			result.Output = "Permission denied by the user."
+			if reason != "" {
+				result.Output = reason
+			}
+		} else {
+			a.callMCP(ctx, mcpSet, call, &result)
+		}
 	default:
 		allowed, reason := a.authorize(ctx, sessionID, runID, call)
 		if !allowed {
@@ -572,11 +589,15 @@ func (a *Agent) authorize(ctx context.Context, sessionID, runID string, call pro
 		a.permMu.Unlock()
 	}()
 
+	reason := "This tool can modify your workspace."
+	if strings.HasPrefix(call.Name, "mcp__") {
+		reason = "This MCP tool may change external state."
+	}
 	_, _ = a.store.Append(sessionID, domain.EventPermissionRequest, runID, domain.PermissionRequestData{
 		RequestID: reqID,
 		Tool:      call.Name,
 		Input:     call.Arguments,
-		Reason:    "This tool can modify your workspace.",
+		Reason:    reason,
 	})
 
 	timeout := time.NewTimer(10 * time.Minute)

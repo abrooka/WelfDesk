@@ -159,6 +159,7 @@ func runServer(args []string) error {
 	defer st.Close()
 
 	ag := agent.New(st, cfg, prov)
+	ag.StartMCP(context.Background())
 	srv := server.New(st, ag, cfg, webDir)
 
 	banner := []string{
@@ -169,6 +170,13 @@ func runServer(args []string) error {
 	}
 	if webDir != "" {
 		banner = append(banner, fmt.Sprintf("web     %s", webDir))
+	}
+	if len(cfg.MCPServers) > 0 {
+		tools := 0
+		for _, status := range ag.MCPStatus() {
+			tools += status.Tools
+		}
+		banner = append(banner, fmt.Sprintf("mcp     %d servers, %d tools", len(cfg.MCPServers), tools))
 	}
 	if cfg.Provider.Kind != "mock" && cfg.Provider.APIKey == "" {
 		banner = append(banner, "warning provider API key is not set")
@@ -193,6 +201,7 @@ func runServer(args []string) error {
 	}
 
 	ag.CancelAll()
+	ag.CloseMCP()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Shutdown(ctx)

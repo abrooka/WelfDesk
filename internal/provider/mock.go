@@ -20,11 +20,12 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 		}
 	}
 
-	// Tiny offline tool demos: "/read <path>", "/bash <command>", "/ask", "/plan", "/task" and "/remember <text>".
+	// Tiny offline tool demos: "/read <path>", "/bash <command>", "/ask", "/plan", "/task",
+	// "/remember <text>" and "/mcp".
 	trimmed := strings.TrimSpace(last)
 	if strings.HasPrefix(trimmed, "/read ") || strings.HasPrefix(trimmed, "/bash ") ||
 		strings.HasPrefix(trimmed, "/remember ") ||
-		trimmed == "/ask" || trimmed == "/plan" || trimmed == "/task" {
+		trimmed == "/ask" || trimmed == "/plan" || trimmed == "/task" || trimmed == "/mcp" {
 		go func() {
 			defer close(ch)
 			switch {
@@ -62,6 +63,20 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 					Name:      "remember",
 					Arguments: `{"text":"` + escapeJSON(text) + `"}`,
 				}})
+			case trimmed == "/mcp":
+				name := ""
+				for _, tool := range req.Tools {
+					if strings.HasPrefix(tool.Name, "mcp__") {
+						name = tool.Name
+						break
+					}
+				}
+				if name == "" {
+					send(ctx, ch, Delta{Type: "text", Text: "No MCP tools are connected. Add a server in Settings."})
+					break
+				}
+				send(ctx, ch, Delta{Type: "text", Text: "Calling " + name + " over MCP."})
+				send(ctx, ch, Delta{Type: "tool_call", ToolCall: &ToolCall{ID: "mock-mcp", Name: name, Arguments: `{}`}})
 			case trimmed == "/ask":
 				send(ctx, ch, Delta{Type: "text", Text: "I need a couple of decisions before continuing."})
 				send(ctx, ch, Delta{Type: "tool_call", ToolCall: &ToolCall{

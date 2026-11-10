@@ -133,6 +133,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		"version":  config.Version,
 		"provider": cfg.Provider.Kind,
 		"model":    cfg.Provider.Model,
+		"mcp":      s.agent.MCPStatus(),
 	})
 }
 
@@ -149,9 +150,10 @@ type providerUpdate struct {
 }
 
 type configUpdate struct {
-	PermissionMode *string         `json:"permissionMode"`
-	MaxTurns       *int            `json:"maxTurns"`
-	Provider       *providerUpdate `json:"provider"`
+	PermissionMode *string                      `json:"permissionMode"`
+	MaxTurns       *int                         `json:"maxTurns"`
+	Provider       *providerUpdate              `json:"provider"`
+	MCPServers     *map[string]config.MCPServer `json:"mcpServers"`
 }
 
 func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
@@ -161,7 +163,6 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cfgMu.Lock()
-	defer s.cfgMu.Unlock()
 
 	cfg := s.cfg
 	if update.PermissionMode != nil {
@@ -169,6 +170,16 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if update.MaxTurns != nil && *update.MaxTurns > 0 {
 		cfg.MaxTurns = *update.MaxTurns
+	}
+	if update.MCPServers != nil {
+		servers := make(map[string]config.MCPServer, len(*update.MCPServers))
+		for name, server := range *update.MCPServers {
+			if len(server.Env) == 0 {
+				server.Env = cfg.MCPServers[name].Env
+			}
+			servers[name] = server
+		}
+		cfg.MCPServers = servers
 	}
 	if p := update.Provider; p != nil {
 		if p.Kind != nil {
@@ -190,15 +201,22 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 	config.Normalize(&cfg)
 	prov, err := provider.New(cfg.Provider)
 	if err != nil {
+		s.cfgMu.Unlock()
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	if err := cfg.Save(); err != nil {
+		s.cfgMu.Unlock()
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	s.cfg = cfg
 	s.agent.UpdateConfig(cfg, prov)
+	s.cfgMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	s.agent.StartMCP(ctx)
 	writeJSON(w, http.StatusOK, cfg.Masked())
 }
 
@@ -211,7 +229,9 @@ func (s *Server) listTools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	registry := tools.NewRegistry(roots)
-	writeJSON(w, http.StatusOK, map[string]any{"tools": registry.Names()})
+	names := registry.Names()
+	names = append(names, s.agent.MCPToolNames()...)
+	writeJSON(w, http.StatusOK, map[string]any{"tools": names})
 }
 
 func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {
