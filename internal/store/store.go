@@ -190,6 +190,37 @@ func (s *Store) SetSessionTitle(id, title string) error {
 	return s.writeMeta(meta)
 }
 
+func (s *Store) SetSessionWorktree(id string, wt *domain.Worktree) error {
+	s.mu.Lock()
+	st, ok := s.sessions[id]
+	if !ok {
+		s.mu.Unlock()
+		return ErrNotFound
+	}
+	st.meta.Worktree = wt
+	st.meta.UpdatedAt = time.Now().UTC()
+	meta := st.meta
+	s.mu.Unlock()
+	return s.writeMeta(meta)
+}
+
+// DeleteSession removes a session and its event log. It is used to roll back
+// a session whose worktree could not be created.
+func (s *Store) DeleteSession(id string) error {
+	s.mu.Lock()
+	st, ok := s.sessions[id]
+	if !ok {
+		s.mu.Unlock()
+		return ErrNotFound
+	}
+	delete(s.sessions, id)
+	if st.file != nil {
+		_ = st.file.Close()
+	}
+	s.mu.Unlock()
+	return os.RemoveAll(s.sessionDir(id))
+}
+
 func (s *Store) SetSessionStatus(id, status string) error {
 	s.mu.Lock()
 	st, ok := s.sessions[id]

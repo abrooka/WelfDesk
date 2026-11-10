@@ -19,6 +19,7 @@ import (
 	"github.com/weftdesk/weft/internal/provider"
 	"github.com/weftdesk/weft/internal/store"
 	"github.com/weftdesk/weft/internal/tools"
+	"github.com/weftdesk/weft/internal/worktree"
 )
 
 var ErrBusy = errors.New("session is already running")
@@ -125,7 +126,7 @@ func (a *Agent) Send(ctx context.Context, sessionID, text string) error {
 		a.finishRun(sessionID)
 		return err
 	}
-	if sess.Title == "" || sess.Title == "New session" {
+	if sess.Title == "" || sess.Title == "New session" || sess.Title == "Worktree session" {
 		title := text
 		if len([]rune(title)) > 40 {
 			title = string([]rune(title)[:40]) + "…"
@@ -205,6 +206,7 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 		fail(err.Error())
 		return
 	}
+	ws = worktree.Apply(ws, sess.Worktree)
 	roots := make([]string, 0, len(ws.Folders))
 	for _, folder := range ws.Folders {
 		roots = append(roots, folder.Path)

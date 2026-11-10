@@ -12,6 +12,8 @@ export function Sidebar({
   onSelectSession,
   onNewWorkspace,
   onNewSession,
+  onNewWorktreeSession,
+  canUseWorktree,
   onOpenSettings,
 }: {
   workspaces: Workspace[]
@@ -23,6 +25,8 @@ export function Sidebar({
   onSelectSession: (id: string) => void
   onNewWorkspace: () => void
   onNewSession: () => void
+  onNewWorktreeSession: () => void
+  canUseWorktree: boolean
   onOpenSettings: () => void
 }) {
   return (
@@ -62,9 +66,19 @@ export function Sidebar({
       <div className="side-section grow">
         <div className="side-head">
           <span>Sessions</span>
-          <button className="icon-btn" onClick={onNewSession} disabled={!activeWorkspaceId} title="New session">
-            <Icon name="plus" size={15} />
-          </button>
+          <div className="side-head-actions">
+            <button
+              className="icon-btn"
+              onClick={onNewWorktreeSession}
+              disabled={!activeWorkspaceId || !canUseWorktree}
+              title="New worktree session"
+            >
+              <Icon name="branch" size={15} />
+            </button>
+            <button className="icon-btn" onClick={onNewSession} disabled={!activeWorkspaceId} title="New session">
+              <Icon name="plus" size={15} />
+            </button>
+          </div>
         </div>
         <div className="side-list">
           {sessions.map((session) => (
@@ -72,9 +86,11 @@ export function Sidebar({
               key={session.id}
               className={`side-item session ${session.id === activeSessionId ? 'active' : ''}`}
               onClick={() => onSelectSession(session.id)}
+              title={session.worktree ? `${session.title} — ${session.worktree.branch}` : session.title}
             >
               <span className={`status-dot ${session.status}`} />
               <span className="side-label">{session.title}</span>
+              {session.worktree && <Icon name="branch" size={11} />}
               <span className="side-time">{relativeTime(session.updatedAt)}</span>
             </button>
           ))}

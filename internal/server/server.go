@@ -23,6 +23,7 @@ import (
 	"github.com/weftdesk/weft/internal/provider"
 	"github.com/weftdesk/weft/internal/store"
 	"github.com/weftdesk/weft/internal/tools"
+	"github.com/weftdesk/weft/internal/worktree"
 )
 
 type Server struct {
@@ -67,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tools", s.listTools)
 	mux.HandleFunc("GET /api/workspaces", s.listWorkspaces)
 	mux.HandleFunc("POST /api/workspaces", s.createWorkspace)
+	mux.HandleFunc("GET /api/workspaces/{id}/git", s.workspaceGit)
 	mux.HandleFunc("GET /api/sessions", s.listSessions)
 	mux.HandleFunc("POST /api/sessions", s.createSession)
 	mux.HandleFunc("GET /api/sessions/{id}", s.getSession)
@@ -297,21 +299,65 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
 }
 
+func (s *Server) workspaceGit(w http.ResponseWriter, r *http.Request) {
+	ws, err := s.store.Workspace(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"repos": worktree.Detect(ws)})
+}
+
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		WorkspaceID string `json:"workspaceId"`
 		Title       string `json:"title"`
+		Worktree    bool   `json:"worktree"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
+	}
+	if body.Worktree && body.Title == "" {
+		body.Title = "Worktree session"
 	}
 	sess, err := s.store.CreateSession(body.WorkspaceID, body.Title)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if body.Worktree {
+		if err := s.attachWorktree(&sess); err != nil {
+			_ = s.store.DeleteSession(sess.ID)
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusCreated, sess)
+}
+
+func (s *Server) attachWorktree(sess *domain.Session) error {
+	ws, err := s.store.Workspace(sess.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	repos := worktree.Detect(ws)
+	if len(repos) == 0 {
+		return errors.New("workspace has no git repository")
+	}
+	repo := repos[0]
+	branch := "weft/" + sess.ID[:8]
+	dir := filepath.Join(s.cfg.DataDir, "worktrees", sess.ID)
+	if err := worktree.Create(repo.Root, dir, branch); err != nil {
+		return err
+	}
+	wt := &domain.Worktree{FolderID: repo.FolderID, RepoPath: repo.Root, Path: dir, Branch: branch}
+	if err := s.store.SetSessionWorktree(sess.ID, wt); err != nil {
+		_ = worktree.Remove(repo.Root, dir)
+		return err
+	}
+	sess.Worktree = wt
+	return nil
 }
 
 func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
@@ -615,7 +661,7 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	_ = sess
+	ws = worktree.Apply(ws, sess.Worktree)
 	root, target, err := resolveWorkspacePath(ws, r.URL.Query().Get("path"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -653,10 +699,11 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) readWorkspaceFile(w http.ResponseWriter, r *http.Request) {
-	_, ws, ok := s.sessionWorkspace(w, r)
+	sess, ws, ok := s.sessionWorkspace(w, r)
 	if !ok {
 		return
 	}
+	ws = worktree.Apply(ws, sess.Worktree)
 	root, target, err := resolveWorkspacePath(ws, r.URL.Query().Get("path"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)

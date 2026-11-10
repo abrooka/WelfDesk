@@ -29,7 +29,7 @@ export function SessionTabs({
             aria-selected={active}
             tabIndex={0}
             className={`session-tab ${active ? 'active' : ''}`}
-            title={session.title}
+            title={session.worktree ? `${session.title} — ${session.worktree.branch}` : session.title}
             onClick={() => onSelect(session.id)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
@@ -46,6 +46,7 @@ export function SessionTabs({
           >
             <span className={`status-dot ${session.status}`} />
             <span className="session-tab-title">{session.title}</span>
+            {session.worktree && <Icon name="branch" size={11} className="session-tab-worktree" />}
             <button
               className="session-tab-close"
               title="Close tab"

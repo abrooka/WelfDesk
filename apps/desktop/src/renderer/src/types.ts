@@ -13,6 +13,19 @@ export interface Workspace {
 
 export type SessionStatus = 'idle' | 'running' | 'error'
 
+export interface Worktree {
+  folderId: string
+  repoPath: string
+  path: string
+  branch: string
+}
+
+export interface Repo {
+  folderId: string
+  root: string
+  branch: string
+}
+
 export interface Session {
   id: string
   workspaceId: string
@@ -21,6 +34,7 @@ export interface Session {
   createdAt: string
   updatedAt: string
   lastSeq: number
+  worktree?: Worktree
 }
 
 export interface WeftEvent<T = unknown> {

@@ -15,7 +15,7 @@ import { Icon } from './components/Icon'
 import { Toasts, type ToastItem } from './components/Toasts'
 import { useSessionStream } from './hooks/useSessionStream'
 import { applyTheme, currentTheme, type ThemeId } from './lib/theme'
-import type { Config, Health, QuestionAnswer, Session, WeftEvent, Workspace } from './types'
+import type { Config, Health, QuestionAnswer, Repo, Session, WeftEvent, Workspace } from './types'
 
 type InspectorTab = 'outline' | 'changes' | 'requests' | 'files'
 
@@ -53,6 +53,7 @@ export default function App() {
   const [config, setConfig] = useState<Config | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
+  const [repos, setRepos] = useState<Repo[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [sessionTabs, setSessionTabs] = useState<SessionTabsByWorkspace>(readSessionTabs)
@@ -184,6 +185,23 @@ export default function App() {
   }, [anyRunning, activeWorkspaceId, refreshSessions])
 
   useEffect(() => {
+    setRepos([])
+    if (!activeWorkspaceId) return
+    let cancelled = false
+    api
+      .workspaceGit(activeWorkspaceId)
+      .then((data) => {
+        if (!cancelled) setRepos(data.repos)
+      })
+      .catch(() => {
+        if (!cancelled) setRepos([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeWorkspaceId])
+
+  useEffect(() => {
     if (activeSessionId) localStorage.setItem(STORAGE.session, activeSessionId)
     if (!activeSessionId) {
       setDetail(null)
@@ -298,6 +316,17 @@ export default function App() {
       openSession(session)
     } catch (cause) {
       notify(cause instanceof Error ? cause.message : 'Failed to create session', 'error')
+    }
+  }, [activeWorkspaceId, notify, openSession])
+
+  const newWorktreeSession = useCallback(async () => {
+    if (!activeWorkspaceId) return
+    try {
+      const session = await api.createSession(activeWorkspaceId, true)
+      setSessions((current) => [session, ...current])
+      openSession(session)
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : 'Failed to create worktree session', 'error')
     }
   }, [activeWorkspaceId, notify, openSession])
 
@@ -432,6 +461,8 @@ export default function App() {
         onSelectSession={selectSession}
         onNewWorkspace={() => setWorkspaceOpen(true)}
         onNewSession={() => void newSession()}
+        onNewWorktreeSession={() => void newWorktreeSession()}
+        canUseWorktree={repos.length > 0}
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
@@ -447,6 +478,12 @@ export default function App() {
                     {folder.name}
                   </span>
                 ))}
+                {activeSession?.worktree && (
+                  <span className="folder-chip worktree-chip" title={activeSession.worktree.path}>
+                    <Icon name="branch" size={11} />
+                    {activeSession.worktree.branch}
+                  </span>
+                )}
               </div>
             </div>
             <div className="topbar-actions">

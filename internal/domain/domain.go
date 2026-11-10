@@ -31,6 +31,15 @@ type Session struct {
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 	LastSeq     int64     `json:"lastSeq"`
+	Worktree    *Worktree `json:"worktree,omitempty"`
+}
+
+// Worktree binds a session to a git worktree of one workspace folder.
+type Worktree struct {
+	FolderID string `json:"folderId"`
+	RepoPath string `json:"repoPath"`
+	Path     string `json:"path"`
+	Branch   string `json:"branch"`
 }
 
 const (

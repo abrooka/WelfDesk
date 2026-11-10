@@ -5,6 +5,7 @@ import type {
   Health,
   PermissionResolvedData,
   QuestionAnswer,
+  Repo,
   RequestRecord,
   Session,
   WeftEvent,
@@ -41,6 +42,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ name, paths }),
     }),
+  workspaceGit: (id: string) => request<{ repos: Repo[] }>(`/api/workspaces/${id}/git`),
 
   sessions: (workspaceId?: string) =>
     request<{ sessions: Session[] }>(
@@ -48,10 +50,10 @@ export const api = {
     ),
   session: (id: string) =>
     request<{ session: Session; workspace: Workspace; running: boolean }>(`/api/sessions/${id}`),
-  createSession: (workspaceId: string) =>
+  createSession: (workspaceId: string, worktree = false) =>
     request<Session>('/api/sessions', {
       method: 'POST',
-      body: JSON.stringify({ workspaceId }),
+      body: JSON.stringify({ workspaceId, worktree }),
     }),
   events: (id: string, after = 0) =>
     request<{ events: WeftEvent[]; lastSeq: number }>(`/api/sessions/${id}/events?after=${after}`),

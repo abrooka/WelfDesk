@@ -487,6 +487,12 @@ button:disabled {
   color: var(--faint);
 }
 
+.side-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .side-list {
   display: flex;
   flex-direction: column;
@@ -748,6 +754,11 @@ button:disabled {
   opacity: 0.6;
 }
 
+.worktree-chip {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -807,6 +818,11 @@ button:disabled {
 .session-tab-title {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.session-tab-worktree {
+  flex: 0 0 auto;
+  color: var(--faint);
 }
 
 .session-tab-close {
