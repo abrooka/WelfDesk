@@ -70,7 +70,7 @@ export function fileBaseName(path: string): string {
 export function parentPath(path: string): string {
   const normalized = path.replace(/[\\/]+$/, '')
   const index = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
-  return index <= 0 ? normalized : normalized.slice(0, index)
+  return index <= 0 ? '' : normalized.slice(0, index)
 }
 
 export function withinPath(root: string, path: string): boolean {
@@ -82,6 +82,8 @@ export function withinPath(root: string, path: string): boolean {
 
 export function relativePath(root: string, path: string): string {
   if (!withinPath(root, path)) return path
-  const value = path.slice(root.length).replace(/^[\\/]/, '')
+  const normRoot = root.replace(/[\\/]+$/, '').replace(/\\/g, '/')
+  const normPath = path.replace(/\\/g, '/')
+  const value = normPath.slice(normRoot.length).replace(/^\//, '')
   return value === '' ? '.' : value
 }

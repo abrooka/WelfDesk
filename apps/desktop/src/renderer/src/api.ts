@@ -1,4 +1,5 @@
 import type {
+  Checkpoint,
   Config,
   FileEntry,
   Health,
@@ -73,6 +74,19 @@ export const api = {
     request<{ ok: boolean }>(`/api/sessions/${sessionId}/questions/${requestId}`, {
       method: 'POST',
       body: JSON.stringify({ answers }),
+    }),
+
+  checkpoints: (id: string) =>
+    request<{ checkpoints: Checkpoint[] }>(`/api/sessions/${id}/checkpoints`),
+  revertCheckpoint: (sessionId: string, checkpointId: string, force = false) =>
+    request<{ reverted: Checkpoint[] }>(
+      `/api/sessions/${sessionId}/checkpoints/${checkpointId}/revert`,
+      { method: 'POST', body: JSON.stringify({ force }) },
+    ),
+  revertRun: (sessionId: string, runId: string, force = false) =>
+    request<{ reverted: Checkpoint[] }>(`/api/sessions/${sessionId}/runs/${runId}/revert`, {
+      method: 'POST',
+      body: JSON.stringify({ force }),
     }),
 
   files: (id: string, path = '') =>

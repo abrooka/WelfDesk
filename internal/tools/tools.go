@@ -14,11 +14,20 @@ import (
 )
 
 type Result struct {
-	Output  string         `json:"output"`
-	Diff    string         `json:"diff,omitempty"`
-	Path    string         `json:"path,omitempty"`
-	IsError bool           `json:"isError"`
-	Meta    map[string]any `json:"meta,omitempty"`
+	Output   string         `json:"output"`
+	Diff     string         `json:"diff,omitempty"`
+	Path     string         `json:"path,omitempty"`
+	IsError  bool           `json:"isError"`
+	Meta     map[string]any `json:"meta,omitempty"`
+	Snapshot *Snapshot      `json:"-"`
+}
+
+// Snapshot records the file state before and after a mutating tool so the
+// agent can store a checkpoint that can later be reverted.
+type Snapshot struct {
+	Existed   bool
+	Before    string
+	AfterHash string
 }
 
 type Tool interface {

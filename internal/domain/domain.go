@@ -74,6 +74,7 @@ const (
 	EventQuestionResolved   = "question.resolved"
 	EventRequestStarted     = "request.started"
 	EventRequestCompleted   = "request.completed"
+	EventCheckpointReverted = "checkpoint.reverted"
 	EventError              = "error"
 )
 
@@ -151,4 +152,27 @@ type ErrorData struct {
 
 type TurnData struct {
 	RunID string `json:"runId"`
+}
+
+// Checkpoint is the pre-edit state of a file written by a mutating tool.
+type Checkpoint struct {
+	ID         string     `json:"id"`
+	SessionID  string     `json:"sessionId"`
+	RunID      string     `json:"runId"`
+	ToolCallID string     `json:"toolCallId"`
+	Tool       string     `json:"tool"`
+	Path       string     `json:"path"`
+	Existed    bool       `json:"existed"`
+	Before     string     `json:"before,omitempty"`
+	AfterHash  string     `json:"afterHash"`
+	Diff       string     `json:"diff,omitempty"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	RevertedAt *time.Time `json:"revertedAt,omitempty"`
+}
+
+type CheckpointRevertedData struct {
+	Scope         string   `json:"scope"`
+	RunID         string   `json:"runId,omitempty"`
+	CheckpointIDs []string `json:"checkpointIds"`
+	Paths         []string `json:"paths"`
 }

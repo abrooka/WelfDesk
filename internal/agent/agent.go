@@ -359,6 +359,11 @@ func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, regist
 				result.Output = result.Output + "\n" + err.Error()
 			}
 		}
+		if !result.IsError && out.Snapshot != nil {
+			if err := a.saveCheckpoint(sessionID, runID, call, out); err != nil {
+				result.Output += "\n[checkpoint could not be saved: " + err.Error() + "]"
+			}
+		}
 	}
 	if len(result.Output) > 100_000 {
 		result.Output = result.Output[:100_000] + "\n… output truncated"

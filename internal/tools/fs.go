@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -147,8 +149,15 @@ func (t *writeFile) Run(ctx context.Context, raw json.RawMessage) (Result, error
 		return Result{IsError: true, Path: in.Path}, err
 	}
 	var old string
-	if data, err := os.ReadFile(path); err == nil {
+	snapshot := &Snapshot{}
+	if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return Result{IsError: true, Path: path}, readErr
+		}
 		old = string(data)
+		snapshot.Existed = true
+		snapshot.Before = old
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return Result{IsError: true, Path: path}, err
@@ -156,12 +165,14 @@ func (t *writeFile) Run(ctx context.Context, raw json.RawMessage) (Result, error
 	if err := os.WriteFile(path, []byte(in.Content), 0o644); err != nil {
 		return Result{IsError: true, Path: path}, err
 	}
+	snapshot.AfterHash = hashString(in.Content)
 	diff := unifiedDiff(path, old, in.Content)
 	return Result{
-		Output: fmt.Sprintf("Wrote %d bytes to %s", len(in.Content), path),
-		Diff:   diff,
-		Path:   path,
-		Meta:   map[string]any{"bytes": len(in.Content)},
+		Output:   fmt.Sprintf("Wrote %d bytes to %s", len(in.Content), path),
+		Diff:     diff,
+		Path:     path,
+		Meta:     map[string]any{"bytes": len(in.Content)},
+		Snapshot: snapshot,
 	}, nil
 }
 
@@ -228,7 +239,17 @@ func (t *editFile) Run(ctx context.Context, raw json.RawMessage) (Result, error)
 		Diff:   diff,
 		Path:   path,
 		Meta:   map[string]any{"replacements": count},
+		Snapshot: &Snapshot{
+			Existed:   true,
+			Before:    old,
+			AfterHash: hashString(updated),
+		},
 	}, nil
+}
+
+func hashString(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:])
 }
 
 type globFiles struct{ base *base }

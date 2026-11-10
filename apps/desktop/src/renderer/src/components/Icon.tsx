@@ -82,6 +82,19 @@ const icons: Record<string, ReactNode> = {
     </>
   ),
   refresh: <path d="M20 11a8 8 0 1 0-2.3 5.7M20 4.5V11h-6.5" />,
+  history: (
+    <>
+      <path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1" />
+      <path d="M3.5 4.5V10H9" />
+      <path d="M12 8v4.5l3 1.8" />
+    </>
+  ),
+  undo: (
+    <>
+      <path d="M8 5.5 3.5 10 8 14.5" />
+      <path d="M4 10h9.5a5.5 5.5 0 0 1 0 11H11" />
+    </>
+  ),
   alert: (
     <>
       <path d="M12 4 21 19.5H3z" />

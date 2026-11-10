@@ -156,6 +156,19 @@ export interface FileEntry {
   isDir: boolean
 }
 
+export interface Checkpoint {
+  id: string
+  sessionId: string
+  runId: string
+  toolCallId: string
+  tool: string
+  path: string
+  existed: boolean
+  diff?: string
+  createdAt: string
+  revertedAt?: string
+}
+
 export interface MainInfo {
   version: string
   serverURL: string

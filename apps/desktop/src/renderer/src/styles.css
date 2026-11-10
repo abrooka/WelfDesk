@@ -1755,6 +1755,20 @@ button:disabled {
   color: var(--text);
 }
 
+.btn.danger {
+  background: var(--red-soft-strong);
+  border-color: var(--red-line);
+  color: var(--red-text);
+}
+
+.btn.danger:hover {
+  background: var(--red-soft-hover);
+}
+
+.btn.danger:disabled {
+  opacity: 0.45;
+}
+
 .btn.small {
   height: 26px;
   font-size: 11px;
@@ -1906,8 +1920,8 @@ button:disabled {
 /* Inspector */
 
 .inspector {
-  width: 336px;
-  flex: 0 0 336px;
+  width: 356px;
+  flex: 0 0 356px;
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--line);
@@ -1920,17 +1934,17 @@ button:disabled {
   flex: 0 0 44px;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 0 8px;
+  gap: 1px;
+  padding: 0 6px;
   border-bottom: 1px solid var(--line);
 }
 
 .tab {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   height: 29px;
-  padding: 0 9px;
+  padding: 0 7px;
   border-radius: 6px;
   font-size: 11px;
   color: var(--muted);
@@ -2271,6 +2285,251 @@ button:disabled {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Changes */
+
+.changes {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.changes-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 14px;
+}
+
+.change-run {
+  border-bottom: 1px solid var(--line);
+}
+
+.change-run-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px 2px 3px;
+}
+
+.change-run-head:hover {
+  background: var(--hover);
+}
+
+.change-run-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 4px;
+  text-align: left;
+}
+
+.change-run-title {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.change-run-meta {
+  min-width: 0;
+  font-size: 9.5px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.change-run-revert {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 2px 4px;
+}
+
+.change-run-revert:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
+.change-run-body {
+  padding: 0 6px 6px;
+}
+
+.change-file {
+  border-radius: 6px;
+}
+
+.change-file + .change-file {
+  margin-top: 1px;
+}
+
+.change-file.reverted {
+  opacity: 0.55;
+}
+
+.change-file-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+}
+
+.change-file-head:hover {
+  background: var(--hover);
+}
+
+.change-file-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 4px 4px 14px;
+  text-align: left;
+  color: var(--dim);
+}
+
+.change-file-icon {
+  display: flex;
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.change-file-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.change-file-name {
+  font-size: 11px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.change-file-dir {
+  font-size: 9px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.change-file-time {
+  flex: 0 0 auto;
+  font-size: 9px;
+  color: var(--faint);
+}
+
+.change-file-revert {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin-right: 2px;
+}
+
+.change-file-revert:disabled {
+  opacity: 0.3;
+}
+
+.change-file-body {
+  padding: 2px 0 6px 21px;
+}
+
+.change-file-body .diff {
+  max-height: 260px;
+}
+
+.change-none {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.change-chip {
+  flex: 0 0 auto;
+  font-size: 9px;
+  color: var(--faint);
+  background: var(--hover-strong);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.revert-body p {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+
+.revert-list {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.revert-list li {
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg-deep);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.revert-force {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.revert-force input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.revert-force > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.revert-force strong {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.revert-force span span {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.revert-error {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--red-text);
 }
 
 /* Files */

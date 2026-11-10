@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar'
 import { Timeline } from './components/Timeline'
 import { Composer } from './components/Composer'
 import { Outline } from './components/Outline'
+import { ChangesPanel } from './components/ChangesPanel'
 import { RequestsPanel } from './components/RequestsPanel'
 import { FilesPanel } from './components/FilesPanel'
 import { SettingsDialog } from './components/SettingsDialog'
@@ -14,7 +15,7 @@ import { useSessionStream } from './hooks/useSessionStream'
 import { applyTheme, currentTheme, type ThemeId } from './lib/theme'
 import type { Config, Health, QuestionAnswer, Session, WeftEvent, Workspace } from './types'
 
-type InspectorTab = 'outline' | 'requests' | 'files'
+type InspectorTab = 'outline' | 'changes' | 'requests' | 'files'
 
 const STORAGE = {
   workspace: 'weft.workspace',
@@ -38,6 +39,7 @@ export default function App() {
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [requestRevision, setRequestRevision] = useState(0)
+  const [changeRevision, setChangeRevision] = useState(0)
   const [maximized, setMaximized] = useState(false)
   const [theme, setTheme] = useState<ThemeId>(currentTheme)
 
@@ -158,6 +160,9 @@ export default function App() {
       }
       if (event.type === 'user.message') {
         void refreshSessions()
+      }
+      if (event.type === 'tool.result' || event.type === 'checkpoint.reverted') {
+        setChangeRevision((value) => value + 1)
       }
       if (event.type === 'turn.completed' || event.type === 'error') {
         void refreshDetail()
@@ -443,6 +448,12 @@ export default function App() {
                   <Icon name="list" size={14} /> Outline
                 </button>
                 <button
+                  className={`tab ${inspectorTab === 'changes' ? 'active' : ''}`}
+                  onClick={() => setInspectorTab('changes')}
+                >
+                  <Icon name="history" size={14} /> Changes
+                </button>
+                <button
                   className={`tab ${inspectorTab === 'requests' ? 'active' : ''}`}
                   onClick={() => setInspectorTab('requests')}
                 >
@@ -460,8 +471,20 @@ export default function App() {
               </div>
 
               <div className="inspector-body">
-                {!activeSession && <p className="panel-note">Open a session to inspect its outline, requests and files.</p>}
+                {!activeSession && (
+                  <p className="panel-note">Open a session to inspect its outline, changes, requests and files.</p>
+                )}
                 {activeSession && inspectorTab === 'outline' && <Outline events={events} />}
+                {activeSession && inspectorTab === 'changes' && activeWorkspace && (
+                  <ChangesPanel
+                    key={activeSession.id}
+                    sessionId={activeSession.id}
+                    folders={activeWorkspace.folders}
+                    running={running}
+                    revision={changeRevision}
+                    onNotify={notify}
+                  />
+                )}
                 {activeSession && inspectorTab === 'requests' && (
                   <RequestsPanel sessionId={activeSession.id} revision={requestRevision} />
                 )}

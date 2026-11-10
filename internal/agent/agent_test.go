@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/weftdesk/weft/internal/domain"
 	"github.com/weftdesk/weft/internal/provider"
 	"github.com/weftdesk/weft/internal/store"
+	"github.com/weftdesk/weft/internal/tools"
 )
 
 func TestLoopReadsFile(t *testing.T) {
@@ -274,6 +276,141 @@ func (p *askProvider) Stream(ctx context.Context, req provider.Request) (<-chan 
 		emit(ctx, ch, provider.Delta{Type: "done"})
 	}()
 	return ch, nil
+}
+
+func TestCheckpointRevertRestoresFile(t *testing.T) {
+	ag, st, project, sessionID := permissionFixture(t, "yolo")
+	path := filepath.Join(project, "notes.txt")
+	if err := os.WriteFile(path, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	write := func(content string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("after\n")
+	if err := ag.saveCheckpoint(sessionID, "run-1", provider.ToolCall{ID: "call-1", Name: "edit_file"}, tools.Result{
+		Path:     path,
+		Diff:     "diff",
+		Snapshot: &tools.Snapshot{Existed: true, Before: "before\n", AfterHash: hashBytes([]byte("after\n"))},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := ag.Checkpoints(sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Path != path {
+		t.Fatalf("unexpected checkpoints: %+v", list)
+	}
+
+	if _, err := ag.RevertCheckpoint(sessionID, list[0].ID, false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "before\n" {
+		t.Fatalf("revert restored %q", data)
+	}
+	waitEvent(t, st, sessionID, domain.EventCheckpointReverted)
+
+	list, err = ag.Checkpoints(sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list[0].RevertedAt == nil {
+		t.Fatal("checkpoint was not marked reverted")
+	}
+	if _, err := ag.RevertCheckpoint(sessionID, list[0].ID, false); err == nil {
+		t.Fatal("expected an error when reverting twice")
+	}
+}
+
+func TestCheckpointRevertNeedsForceAfterExternalEdit(t *testing.T) {
+	ag, _, project, sessionID := permissionFixture(t, "yolo")
+	path := filepath.Join(project, "config.txt")
+	if err := os.WriteFile(path, []byte("v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ag.saveCheckpoint(sessionID, "run-1", provider.ToolCall{ID: "call-1", Name: "write_file"}, tools.Result{
+		Path:     path,
+		Snapshot: &tools.Snapshot{Existed: true, Before: "v1\n", AfterHash: hashBytes([]byte("v2\n"))},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("manual\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	list, err := ag.Checkpoints(sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ag.RevertCheckpoint(sessionID, list[0].ID, false); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected a conflict, got %v", err)
+	}
+	if _, err := ag.RevertCheckpoint(sessionID, list[0].ID, true); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "v1\n" {
+		t.Fatalf("forced revert restored %q", data)
+	}
+}
+
+func TestRevertRunRestoresEarliestStateAndDeletesCreatedFiles(t *testing.T) {
+	ag, _, project, sessionID := permissionFixture(t, "yolo")
+	edited := filepath.Join(project, "edited.txt")
+	created := filepath.Join(project, "created.txt")
+	if err := os.WriteFile(edited, []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := func(path, before, after string, existed bool) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(after), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := ag.saveCheckpoint(sessionID, "run-1", provider.ToolCall{ID: newID(), Name: "edit_file"}, tools.Result{
+			Path:     path,
+			Snapshot: &tools.Snapshot{Existed: existed, Before: before, AfterHash: hashBytes([]byte(after))},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot(edited, "a\n", "b\n", true)
+	snapshot(edited, "b\n", "c\n", true)
+	snapshot(created, "", "new\n", false)
+
+	if _, err := ag.RevertRun(sessionID, "run-1", false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "a\n" {
+		t.Fatalf("run revert restored %q", data)
+	}
+	if _, err := os.Stat(created); !os.IsNotExist(err) {
+		t.Fatalf("created file still exists: %v", err)
+	}
+	list, err := ag.Checkpoints(sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cp := range list {
+		if cp.RevertedAt == nil {
+			t.Fatalf("checkpoint %s was not marked reverted", cp.Path)
+		}
+	}
 }
 
 func waitEvent(t *testing.T, st *store.Store, sessionID, eventType string) domain.Event {

@@ -77,6 +77,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/cancel", s.cancelRun)
 	mux.HandleFunc("POST /api/sessions/{id}/permissions/{requestId}", s.resolvePermission)
 	mux.HandleFunc("POST /api/sessions/{id}/questions/{requestId}", s.answerQuestion)
+	mux.HandleFunc("GET /api/sessions/{id}/checkpoints", s.listCheckpoints)
+	mux.HandleFunc("POST /api/sessions/{id}/checkpoints/{checkpointId}/revert", s.revertCheckpoint)
+	mux.HandleFunc("POST /api/sessions/{id}/runs/{runId}/revert", s.revertRun)
 	mux.HandleFunc("GET /api/sessions/{id}/files", s.listFiles)
 	mux.HandleFunc("GET /api/sessions/{id}/file", s.readWorkspaceFile)
 	mux.HandleFunc("GET /", s.serveWeb)
@@ -503,6 +506,90 @@ func (s *Server) answerQuestion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+type checkpointSummary struct {
+	ID         string     `json:"id"`
+	SessionID  string     `json:"sessionId"`
+	RunID      string     `json:"runId"`
+	ToolCallID string     `json:"toolCallId"`
+	Tool       string     `json:"tool"`
+	Path       string     `json:"path"`
+	Existed    bool       `json:"existed"`
+	Diff       string     `json:"diff,omitempty"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	RevertedAt *time.Time `json:"revertedAt,omitempty"`
+}
+
+func summarizeCheckpoints(list []domain.Checkpoint) []checkpointSummary {
+	out := make([]checkpointSummary, 0, len(list))
+	for _, cp := range list {
+		out = append(out, checkpointSummary{
+			ID:         cp.ID,
+			SessionID:  cp.SessionID,
+			RunID:      cp.RunID,
+			ToolCallID: cp.ToolCallID,
+			Tool:       cp.Tool,
+			Path:       cp.Path,
+			Existed:    cp.Existed,
+			Diff:       cp.Diff,
+			CreatedAt:  cp.CreatedAt,
+			RevertedAt: cp.RevertedAt,
+		})
+	}
+	return out
+}
+
+func (s *Server) listCheckpoints(w http.ResponseWriter, r *http.Request) {
+	list, err := s.agent.Checkpoints(r.PathValue("id"))
+	if err != nil {
+		writeCheckpointError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"checkpoints": summarizeCheckpoints(list)})
+}
+
+func (s *Server) revertCheckpoint(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Force bool `json:"force"`
+	}
+	if err := readOptionalJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	reverted, err := s.agent.RevertCheckpoint(r.PathValue("id"), r.PathValue("checkpointId"), body.Force)
+	if err != nil {
+		writeCheckpointError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"reverted": summarizeCheckpoints(reverted)})
+}
+
+func (s *Server) revertRun(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Force bool `json:"force"`
+	}
+	if err := readOptionalJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	reverted, err := s.agent.RevertRun(r.PathValue("id"), r.PathValue("runId"), body.Force)
+	if err != nil {
+		writeCheckpointError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"reverted": summarizeCheckpoints(reverted)})
+}
+
+func writeCheckpointError(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		status = http.StatusNotFound
+	case errors.Is(err, agent.ErrBusy), errors.Is(err, agent.ErrConflict):
+		status = http.StatusConflict
+	}
+	writeError(w, status, err)
+}
+
 func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 	sess, ws, ok := s.sessionWorkspace(w, r)
 	if !ok {
@@ -658,6 +745,13 @@ func readJSON(r *http.Request, out any) error {
 		return fmt.Errorf("invalid JSON body: %w", err)
 	}
 	return nil
+}
+
+func readOptionalJSON(r *http.Request, out any) error {
+	if r.Body == nil || r.ContentLength == 0 {
+		return nil
+	}
+	return readJSON(r, out)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
