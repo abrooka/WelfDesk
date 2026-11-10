@@ -56,6 +56,8 @@ type Agent struct {
 
 	qMu       sync.Mutex
 	questions map[string]pendingQuestion
+
+	memMu sync.Mutex
 }
 
 type pendingQuestion struct {
@@ -204,8 +206,8 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 		roots = append(roots, folder.Path)
 	}
 	registry := tools.NewRegistry(roots)
-	baseSystem := systemPrompt(ws)
-	toolDefs := append(registry.Definitions(), askUserTool(), todoTool(), taskTool())
+	baseSystem := systemPrompt(ws, cfg.DataDir)
+	toolDefs := append(registry.Definitions(), askUserTool(), todoTool(), taskTool(), rememberTool())
 
 	for turn := 0; turn < cfg.MaxTurns; turn++ {
 		history, summary, err := a.history(sessionID)
@@ -214,7 +216,7 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 			return
 		}
 		history, summary = a.maybeCompact(ctx, sessionID, runID, cfg, prov, history, summary)
-		system := baseSystem + planPrompt(a.Todos(sessionID)) + summaryPrompt(summary)
+		system := baseSystem + memoryPrompt(a.memoryText()) + planPrompt(a.Todos(sessionID)) + summaryPrompt(summary)
 		reqID := newID()
 		snapshot := requestSnapshot{
 			RequestID: reqID,
@@ -340,6 +342,8 @@ func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, regist
 		a.updateTodos(sessionID, runID, call.Arguments, &result)
 	case call.Name == "task":
 		a.runTask(ctx, sessionID, runID, call.Arguments, &result)
+	case call.Name == "remember":
+		a.remember(call.Arguments, &result)
 	case call.Name == "ask_user":
 		a.askUser(ctx, sessionID, runID, call, &result, started)
 		return
@@ -733,30 +737,58 @@ func isToolResultMessage(message provider.Message) bool {
 	return len(message.Content) > 0
 }
 
-func systemPrompt(ws domain.Workspace) string {
+const (
+	maxInstructionChars = 20_000
+	maxRulesChars       = 30_000
+)
+
+func systemPrompt(ws domain.Workspace, dataDir string) string {
 	var b strings.Builder
 	b.WriteString("You are Weft, an agentic coding assistant running on the user's machine.\n")
 	b.WriteString("You can inspect and modify the workspace with the provided tools. ")
 	b.WriteString("Read a file before editing it, keep changes focused, and verify your work when possible. ")
 	b.WriteString("For multi-step tasks, keep a short plan with todo_write and update it as you make progress. ")
-	b.WriteString("Delegate self-contained exploration or sizeable side work to a subagent with task.\n\n")
+	b.WriteString("Delegate self-contained exploration or sizeable side work to a subagent with task. ")
+	b.WriteString("Use remember for lasting preferences or facts the user asks you to keep across sessions.\n\n")
 	b.WriteString("Workspace folders:\n")
 	for _, folder := range ws.Folders {
 		fmt.Fprintf(&b, "- %s: %s\n", folder.Name, folder.Path)
 	}
+	if dataDir != "" {
+		appendInstructions(&b, "User instructions from "+filepath.Join(dataDir, "AGENTS.md"), filepath.Join(dataDir, "AGENTS.md"), maxInstructionChars)
+	}
 	for _, folder := range ws.Folders {
-		path := filepath.Join(folder.Path, "AGENTS.md")
-		raw, err := os.ReadFile(path)
-		if err != nil || len(strings.TrimSpace(string(raw))) == 0 {
-			continue
+		appendInstructions(&b, "Instructions from "+filepath.Join(folder.Path, "AGENTS.md"), filepath.Join(folder.Path, "AGENTS.md"), maxInstructionChars)
+	}
+	rulesBudget := maxRulesChars
+	for _, folder := range ws.Folders {
+		paths, _ := filepath.Glob(filepath.Join(folder.Path, ".weft", "rules", "*.md"))
+		for _, path := range paths {
+			if rulesBudget <= 0 {
+				b.WriteString("\n(More project rules were omitted because the rules budget is full.)\n")
+				return b.String()
+			}
+			used := appendInstructions(&b, "Rule from "+path, path, min(rulesBudget, maxInstructionChars))
+			rulesBudget -= used
 		}
-		text := string(raw)
-		if len(text) > 20_000 {
-			text = text[:20_000] + "\n… truncated"
-		}
-		fmt.Fprintf(&b, "\n# Instructions from %s\n\n%s\n", path, text)
 	}
 	return b.String()
+}
+
+func appendInstructions(b *strings.Builder, heading, path string, limit int) int {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	text := strings.TrimSpace(string(raw))
+	if text == "" {
+		return 0
+	}
+	if len(text) > limit {
+		text = text[:limit] + "\n… truncated"
+	}
+	fmt.Fprintf(b, "\n# %s\n\n%s\n", heading, text)
+	return len(text)
 }
 
 func readOnlyTool(name string) bool {

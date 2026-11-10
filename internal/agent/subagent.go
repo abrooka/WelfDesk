@@ -73,7 +73,7 @@ func (a *Agent) runTask(ctx context.Context, sessionID, runID, args string, resu
 	}
 	registry := tools.NewRegistry(roots)
 	toolDefs := registry.Definitions()
-	system := systemPrompt(ws) + "\n# Subagent\n\n" +
+	system := systemPrompt(ws, cfg.DataDir) + memoryPrompt(a.memoryText()) + "\n# Subagent\n\n" +
 		"You are a subagent working for another Weft agent. Complete the task on your own and report back with a concise, factual summary: what you found or changed, relevant file paths, and anything the parent agent must know. The user does not see your conversation, so put everything important in the report. Do not ask the user questions.\n"
 
 	history := []provider.Message{{
@@ -163,7 +163,7 @@ func (a *Agent) runTask(ctx context.Context, sessionID, runID, args string, resu
 
 func (a *Agent) subagentTool(ctx context.Context, sessionID, runID string, registry *tools.Registry, call provider.ToolCall) (string, bool) {
 	switch call.Name {
-	case "task", "todo_write", "ask_user":
+	case "task", "todo_write", "ask_user", "remember":
 		return fmt.Sprintf("%s is not available to a subagent", call.Name), true
 	}
 	allowed, reason := a.authorize(ctx, sessionID, runID, call)

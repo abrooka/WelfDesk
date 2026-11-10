@@ -297,6 +297,8 @@ function toolIcon(name: string): string {
       return 'layers'
     case 'task':
       return 'spark'
+    case 'remember':
+      return 'list'
     default:
       return 'file'
   }

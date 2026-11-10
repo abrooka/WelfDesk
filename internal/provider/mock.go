@@ -20,9 +20,10 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 		}
 	}
 
-	// Tiny offline tool demos: "/read <path>", "/bash <command>", "/ask", "/plan" and "/task".
+	// Tiny offline tool demos: "/read <path>", "/bash <command>", "/ask", "/plan", "/task" and "/remember <text>".
 	trimmed := strings.TrimSpace(last)
 	if strings.HasPrefix(trimmed, "/read ") || strings.HasPrefix(trimmed, "/bash ") ||
+		strings.HasPrefix(trimmed, "/remember ") ||
 		trimmed == "/ask" || trimmed == "/plan" || trimmed == "/task" {
 		go func() {
 			defer close(ch)
@@ -52,6 +53,14 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 					Name: "task",
 					Arguments: `{"description":"Inspect the workspace",` +
 						`"prompt":"List the workspace folders and report what this project appears to do."}`,
+				}})
+			case strings.HasPrefix(trimmed, "/remember "):
+				text := strings.TrimSpace(trimmed[len("/remember "):])
+				send(ctx, ch, Delta{Type: "text", Text: "Saving that for future sessions."})
+				send(ctx, ch, Delta{Type: "tool_call", ToolCall: &ToolCall{
+					ID:        "mock-remember",
+					Name:      "remember",
+					Arguments: `{"text":"` + escapeJSON(text) + `"}`,
 				}})
 			case trimmed == "/ask":
 				send(ctx, ch, Delta{Type: "text", Text: "I need a couple of decisions before continuing."})

@@ -46,6 +46,8 @@ export function toolSummary(name: string, raw: string | undefined): string {
       return pick('path') || 'file'
     case 'bash':
       return firstLine(pick('command'), 70)
+    case 'remember':
+      return firstLine(pick('text'), 70)
     case 'grep':
       return pick('pattern') ? `/${pick('pattern')}/` : 'search'
     case 'glob':

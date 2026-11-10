@@ -621,6 +621,137 @@ func (p *compactProvider) recorded() (string, []provider.Message) {
 	return p.system, p.messages
 }
 
+func TestSystemPromptIncludesUserAndProjectRules(t *testing.T) {
+	dataDir := t.TempDir()
+	project := t.TempDir()
+	writeFile(t, filepath.Join(dataDir, "AGENTS.md"), "DATA-DIR-RULE: reply in English.")
+	writeFile(t, filepath.Join(project, "AGENTS.md"), "PROJECT-RULE: run go test.")
+	writeFile(t, filepath.Join(project, ".weft", "rules", "style.md"), "RULE-STYLE: use tabs.")
+	writeFile(t, filepath.Join(project, ".weft", "rules", "notes.txt"), "RULE-IGNORED")
+
+	ws := domain.Workspace{Folders: []domain.Folder{{Name: "demo", Path: project}}}
+	prompt := systemPrompt(ws, dataDir)
+	for _, want := range []string{"DATA-DIR-RULE", "PROJECT-RULE", "RULE-STYLE", "# Rule from " + filepath.Join(project, ".weft", "rules", "style.md")} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("system prompt is missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "RULE-IGNORED") {
+		t.Fatal("only markdown files in .weft/rules should be loaded")
+	}
+}
+
+func TestRememberAppendsToMemoryAndInjectsPrompt(t *testing.T) {
+	dataDir := t.TempDir()
+	project := t.TempDir()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ws, err := st.CreateWorkspace("demo", []domain.Folder{{Path: project}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := st.CreateSession(ws.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(dataDir)
+	cfg.PermissionMode = "yolo"
+	prov := &memoryProvider{}
+	ag := New(st, cfg, prov)
+
+	if err := ag.Send(context.Background(), sess.ID, "remember the test command"); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, st, sess.ID)
+
+	memoryFile := filepath.Join(dataDir, "memory.md")
+	raw, err := os.ReadFile(memoryFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "- Always run tests with pnpm.") {
+		t.Fatalf("memory file does not contain the note: %q", raw)
+	}
+
+	if err := ag.Send(context.Background(), sess.ID, "continue"); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, st, sess.ID)
+	system := prov.lastSystem()
+	if !strings.Contains(system, "# Memory") || !strings.Contains(system, "Always run tests with pnpm.") {
+		t.Fatalf("memory was not injected into the system prompt: %q", system)
+	}
+
+	var result domain.ToolResultData
+	ag.remember(`{"text":"always run tests with pnpm."}`, &result)
+	if result.IsError || !strings.HasPrefix(result.Output, "Already remembered") {
+		t.Fatalf("duplicate note was not rejected: %+v", result)
+	}
+	raw, err = os.ReadFile(memoryFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := strings.Count(string(raw), "run tests with pnpm"); count != 1 {
+		t.Fatalf("duplicate note was written %d times", count)
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type memoryProvider struct {
+	mu     sync.Mutex
+	system string
+}
+
+func (p *memoryProvider) Name() string { return "fake" }
+
+func (p *memoryProvider) Stream(ctx context.Context, req provider.Request) (<-chan provider.Delta, error) {
+	p.mu.Lock()
+	p.system = req.System
+	p.mu.Unlock()
+
+	hasResult := false
+	for _, message := range req.Messages {
+		for _, block := range message.Content {
+			if block.Type == provider.BlockToolResult {
+				hasResult = true
+			}
+		}
+	}
+	ch := make(chan provider.Delta, 4)
+	go func() {
+		defer close(ch)
+		if hasResult {
+			emit(ctx, ch, provider.Delta{Type: "text", Text: "Noted."})
+		} else {
+			emit(ctx, ch, provider.Delta{Type: "tool_call", ToolCall: &provider.ToolCall{
+				ID:        "remember-1",
+				Name:      "remember",
+				Arguments: `{"text":"Always run tests with pnpm."}`,
+			}})
+		}
+		emit(ctx, ch, provider.Delta{Type: "done"})
+	}()
+	return ch, nil
+}
+
+func (p *memoryProvider) lastSystem() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.system
+}
+
 func TestCheckpointRevertRestoresFile(t *testing.T) {
 	ag, st, project, sessionID := permissionFixture(t, "yolo")
 	path := filepath.Join(project, "notes.txt")
