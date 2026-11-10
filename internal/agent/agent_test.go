@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -895,6 +896,144 @@ func (p *skillProvider) hasTool(name string) bool {
 		}
 	}
 	return false
+}
+
+func TestHooksRunAroundTools(t *testing.T) {
+	dataDir := t.TempDir()
+	project := t.TempDir()
+	blockCommand := "echo policy says no; exit 2"
+	if runtime.GOOS == "windows" {
+		blockCommand = "echo policy says no & exit /b 2"
+	}
+	hooks := fmt.Sprintf(`{"hooks":{
+		"run_start":[{"command":"echo START-OUTPUT"}],
+		"pre_tool_use":[{"command":%q,"matcher":"^bash$"}],
+		"post_tool_use":[{"command":"echo POST-OUTPUT","matcher":"^read_file$"}],
+		"run_end":[{"command":"echo done> hook-marker.txt"}]
+	}}`, blockCommand)
+	writeFile(t, filepath.Join(dataDir, "hooks.json"), hooks)
+	writeFile(t, filepath.Join(project, "hello.txt"), "hello weft\n")
+
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ws, err := st.CreateWorkspace("demo", []domain.Folder{{Path: project}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := st.CreateSession(ws.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(dataDir)
+	cfg.PermissionMode = "yolo"
+	prov := &hookProvider{}
+	ag := New(st, cfg, prov)
+
+	if err := ag.Send(context.Background(), sess.ID, "check the file"); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, st, sess.ID)
+
+	if system := prov.lastSystem(); !strings.Contains(system, "# Run start hook output") || !strings.Contains(system, "START-OUTPUT") {
+		t.Fatalf("run_start hook output was not injected:\n%s", system)
+	}
+	events, err := st.EventsAfter(sess.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var readResult, bashResult *domain.ToolResultData
+	for _, ev := range events {
+		if ev.Type != domain.EventToolResult {
+			continue
+		}
+		var data domain.ToolResultData
+		if err := decode(ev.Data, &data); err != nil {
+			t.Fatal(err)
+		}
+		switch data.Name {
+		case "read_file":
+			readResult = &data
+		case "bash":
+			bashResult = &data
+		}
+	}
+	if readResult == nil || readResult.IsError {
+		t.Fatalf("read_file should have succeeded: %+v", readResult)
+	}
+	if !strings.Contains(readResult.Output, "hello weft") || !strings.Contains(readResult.Output, "POST-OUTPUT") {
+		t.Fatalf("post_tool_use hook output missing from read result:\n%s", readResult.Output)
+	}
+	if bashResult == nil || !bashResult.IsError {
+		t.Fatalf("bash should have been blocked: %+v", bashResult)
+	}
+	if !strings.Contains(bashResult.Output, "Blocked by a pre_tool_use hook.") || !strings.Contains(bashResult.Output, "policy says no") {
+		t.Fatalf("blocked tool result is missing hook output:\n%s", bashResult.Output)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(project, "hook-marker.txt")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("run_end hook did not run")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+type hookProvider struct {
+	mu     sync.Mutex
+	system string
+}
+
+func (p *hookProvider) Name() string { return "fake" }
+
+func (p *hookProvider) Stream(ctx context.Context, req provider.Request) (<-chan provider.Delta, error) {
+	p.mu.Lock()
+	p.system = req.System
+	p.mu.Unlock()
+
+	results := 0
+	lastError := false
+	for _, message := range req.Messages {
+		for _, block := range message.Content {
+			if block.Type == provider.BlockToolResult {
+				results++
+				lastError = block.ToolResult != nil && block.ToolResult.IsError
+			}
+		}
+	}
+	ch := make(chan provider.Delta, 4)
+	go func() {
+		defer close(ch)
+		switch {
+		case results == 0:
+			emit(ctx, ch, provider.Delta{Type: "tool_call", ToolCall: &provider.ToolCall{
+				ID:        "hook-read",
+				Name:      "read_file",
+				Arguments: `{"path":"hello.txt"}`,
+			}})
+		case results == 1 && !lastError:
+			emit(ctx, ch, provider.Delta{Type: "tool_call", ToolCall: &provider.ToolCall{
+				ID:        "hook-bash",
+				Name:      "bash",
+				Arguments: `{"command":"echo hi"}`,
+			}})
+		default:
+			emit(ctx, ch, provider.Delta{Type: "text", Text: "Checked."})
+		}
+		emit(ctx, ch, provider.Delta{Type: "done"})
+	}()
+	return ch, nil
+}
+
+func (p *hookProvider) lastSystem() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.system
 }
 
 func TestMCPToolRunsThroughAgent(t *testing.T) {

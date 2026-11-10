@@ -296,6 +296,16 @@ export function SettingsDialog({
         </p>
       </section>
 
+      <section className="settings-section settings-hooks">
+        <h3>Hooks</h3>
+        <p className="settings-hint">
+          Hooks run shell commands around agent activity. Add a hooks.json to the data folder with run_start,
+          pre_tool_use, post_tool_use, or run_end entries. Each entry takes a command and an optional tool-name regex;
+          a pre_tool_use hook that exits with code 2 blocks the tool.
+        </p>
+        <pre className="json-pre">{`{"hooks": {"post_tool_use": [{"command": "pnpm lint", "matcher": "edit_file"}]}}`}</pre>
+      </section>
+
       <section className="settings-section settings-appearance">
         <h3>Appearance</h3>
         <p className="settings-hint">Theme applies immediately and is saved on this device.</p>

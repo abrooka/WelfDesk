@@ -75,6 +75,7 @@ func (a *Agent) runTask(ctx context.Context, sessionID, runID, args string, resu
 	registry := tools.NewRegistry(roots)
 	mcpSet := a.mcpClient()
 	skills := loadSkills(ws, cfg.DataDir)
+	hooks := loadHooks(ws, cfg.DataDir)
 	toolDefs := registry.Definitions()
 	if len(skills) > 0 {
 		toolDefs = append(toolDefs, useSkillTool())
@@ -144,7 +145,7 @@ func (a *Agent) runTask(ctx context.Context, sessionID, runID, args string, resu
 				result.Output = "Run cancelled."
 				return
 			}
-			output, isError := a.subagentTool(ctx, sessionID, runID, registry, mcpSet, skills, call)
+			output, isError := a.subagentTool(ctx, sessionID, runID, registry, mcpSet, skills, hooks, call)
 			history = append(history, provider.Message{
 				Role: "user",
 				Content: []provider.Block{{
@@ -168,12 +169,24 @@ func (a *Agent) runTask(ctx context.Context, sessionID, runID, args string, resu
 	result.Output = report
 }
 
-func (a *Agent) subagentTool(ctx context.Context, sessionID, runID string, registry *tools.Registry, mcpSet *mcp.Set, skills []skill, call provider.ToolCall) (string, bool) {
+func (a *Agent) subagentTool(ctx context.Context, sessionID, runID string, registry *tools.Registry, mcpSet *mcp.Set, skills []skill, hooks hookSet, call provider.ToolCall) (string, bool) {
 	switch call.Name {
 	case "use_skill":
 		return loadSkill(skills, call.Arguments)
 	case "task", "todo_write", "ask_user", "remember":
 		return fmt.Sprintf("%s is not available to a subagent", call.Name), true
+	}
+	preNote := ""
+	if !hooks.empty() {
+		var blocked bool
+		preNote, blocked = a.runHooks(ctx, hooks, "pre_tool_use", sessionID, runID, call.Name, call.Arguments)
+		if blocked {
+			output := "Blocked by a pre_tool_use hook."
+			if preNote != "" {
+				output = appendNote(output, preNote)
+			}
+			return output, true
+		}
 	}
 	allowed, reason := a.authorize(ctx, sessionID, runID, call)
 	if !allowed {
@@ -204,6 +217,14 @@ func (a *Agent) subagentTool(ctx context.Context, sessionID, runID string, regis
 			if err := a.saveCheckpoint(sessionID, runID, call, out); err != nil {
 				output += "\n[checkpoint could not be saved: " + err.Error() + "]"
 			}
+		}
+	}
+	if preNote != "" {
+		output = appendNote(output, "[pre_tool_use hook]\n"+preNote)
+	}
+	if !hooks.empty() {
+		if note, _ := a.runHooks(ctx, hooks, "post_tool_use", sessionID, runID, call.Name, call.Arguments); note != "" {
+			output = appendNote(output, "[post_tool_use hook]\n"+note)
 		}
 	}
 	if len(output) > 100_000 {

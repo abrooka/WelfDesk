@@ -3053,10 +3053,15 @@ button:disabled {
 }
 
 .settings-appearance,
-.settings-skills {
+.settings-skills,
+.settings-hooks {
   margin-top: 26px;
   padding-top: 20px;
   border-top: 1px solid var(--line);
+}
+
+.settings-hooks .json-pre {
+  font-size: 10px;
 }
 
 .settings-hint {

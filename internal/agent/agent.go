@@ -212,7 +212,16 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 	registry := tools.NewRegistry(roots)
 	mcpSet := a.mcpClient()
 	skills := loadSkills(ws, cfg.DataDir)
+	hooks := loadHooks(ws, cfg.DataDir)
 	baseSystem := systemPrompt(ws, cfg.DataDir) + skillsPrompt(skills)
+	if !hooks.empty() {
+		if output, _ := a.runHooks(ctx, hooks, "run_start", sessionID, runID, "", ""); output != "" {
+			baseSystem += "\n# Run start hook output\n\n" + output + "\n"
+		}
+		defer func() {
+			a.runHooks(context.WithoutCancel(ctx), hooks, "run_end", sessionID, runID, "", "")
+		}()
+	}
 	toolDefs := append(registry.Definitions(), askUserTool(), todoTool(), taskTool(), rememberTool())
 	if len(skills) > 0 {
 		toolDefs = append(toolDefs, useSkillTool())
@@ -299,7 +308,7 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 				stop("Run cancelled")
 				return
 			}
-			a.executeTool(ctx, sessionID, runID, registry, mcpSet, skills, call)
+			a.executeTool(ctx, sessionID, runID, registry, mcpSet, skills, hooks, call)
 		}
 	}
 
@@ -340,12 +349,28 @@ func (a *Agent) stream(ctx context.Context, sessionID, runID string, req provide
 	return text.String(), calls, usage, nil
 }
 
-func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, registry *tools.Registry, mcpSet *mcp.Set, skills []skill, call provider.ToolCall) {
+func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, registry *tools.Registry, mcpSet *mcp.Set, skills []skill, hooks hookSet, call provider.ToolCall) {
 	callData := domain.ToolCallData{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
 	_, _ = a.store.Append(sessionID, domain.EventToolCall, runID, callData)
 
 	result := domain.ToolResultData{ToolCallID: call.ID, Name: call.Name}
 	started := time.Now()
+
+	preNote := ""
+	if call.Name != "ask_user" && !hooks.empty() {
+		var blocked bool
+		preNote, blocked = a.runHooks(ctx, hooks, "pre_tool_use", sessionID, runID, call.Name, call.Arguments)
+		if blocked {
+			result.IsError = true
+			result.Output = "Blocked by a pre_tool_use hook."
+			if preNote != "" {
+				result.Output = appendNote(result.Output, preNote)
+			}
+			result.DurationMs = time.Since(started).Milliseconds()
+			_, _ = a.store.Append(sessionID, domain.EventToolResult, runID, result)
+			return
+		}
+	}
 
 	switch {
 	case call.Name == "todo_write":
@@ -397,6 +422,14 @@ func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, regist
 					result.Output += "\n[checkpoint could not be saved: " + err.Error() + "]"
 				}
 			}
+		}
+	}
+	if preNote != "" {
+		result.Output = appendNote(result.Output, "[pre_tool_use hook]\n"+preNote)
+	}
+	if !hooks.empty() {
+		if note, _ := a.runHooks(ctx, hooks, "post_tool_use", sessionID, runID, call.Name, call.Arguments); note != "" {
+			result.Output = appendNote(result.Output, "[post_tool_use hook]\n"+note)
 		}
 	}
 	if len(result.Output) > 100_000 {
