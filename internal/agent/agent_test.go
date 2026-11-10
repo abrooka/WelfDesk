@@ -348,6 +348,97 @@ func TestTodoWriteStoresPlanAndInjectsPrompt(t *testing.T) {
 	}
 }
 
+func TestSubagentReturnsReportAndKeepsHistoryIsolated(t *testing.T) {
+	ag, st, project, sessionID := permissionFixture(t, "yolo")
+	if err := os.WriteFile(filepath.Join(project, "marker.txt"), []byte("the marker is 42\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ag.UpdateConfig(ag.Config(), &subagentProvider{})
+	if err := ag.Send(context.Background(), sessionID, "delegate"); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, st, sessionID)
+
+	events, err := st.EventsAfter(sessionID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolCalls := 0
+	var report domain.ToolResultData
+	sawFinal := false
+	for _, ev := range events {
+		switch ev.Type {
+		case domain.EventToolCall:
+			toolCalls++
+		case domain.EventToolResult:
+			var data domain.ToolResultData
+			if err := decode(ev.Data, &data); err != nil {
+				t.Fatal(err)
+			}
+			if data.Name == "task" {
+				report = data
+			}
+		case domain.EventAssistantMessage:
+			var data domain.AssistantMessageData
+			if err := decode(ev.Data, &data); err != nil {
+				t.Fatal(err)
+			}
+			if data.Text == "done" && len(data.ToolCalls) == 0 {
+				sawFinal = true
+			}
+		}
+	}
+	if toolCalls != 1 {
+		t.Fatalf("subagent tool calls leaked into the session log: %d tool calls", toolCalls)
+	}
+	if report.IsError || !strings.Contains(report.Output, "Found the marker.") {
+		t.Fatalf("unexpected task report: %+v", report)
+	}
+	if !sawFinal {
+		t.Fatal("the parent agent did not finish after the subagent report")
+	}
+}
+
+type subagentProvider struct{}
+
+func (p *subagentProvider) Name() string { return "fake" }
+
+func (p *subagentProvider) Stream(ctx context.Context, req provider.Request) (<-chan provider.Delta, error) {
+	results := ""
+	for _, message := range req.Messages {
+		for _, block := range message.Content {
+			if block.Type == provider.BlockToolResult && block.ToolResult != nil {
+				results += block.ToolResult.Content
+			}
+		}
+	}
+	ch := make(chan provider.Delta, 4)
+	go func() {
+		defer close(ch)
+		if strings.Contains(req.System, "# Subagent") {
+			if strings.Contains(results, "the marker is 42") {
+				emit(ctx, ch, provider.Delta{Type: "text", Text: "Found the marker."})
+			} else {
+				emit(ctx, ch, provider.Delta{Type: "tool_call", ToolCall: &provider.ToolCall{
+					ID:        "sub-1",
+					Name:      "read_file",
+					Arguments: `{"path":"marker.txt"}`,
+				}})
+			}
+		} else if strings.Contains(results, "Found the marker.") {
+			emit(ctx, ch, provider.Delta{Type: "text", Text: "done"})
+		} else {
+			emit(ctx, ch, provider.Delta{Type: "tool_call", ToolCall: &provider.ToolCall{
+				ID:        "task-1",
+				Name:      "task",
+				Arguments: `{"description":"Inspect marker","prompt":"Read marker.txt and report the value."}`,
+			}})
+		}
+		emit(ctx, ch, provider.Delta{Type: "done"})
+	}()
+	return ch, nil
+}
+
 func TestNormalizeTodosValidatesItems(t *testing.T) {
 	cases := []struct {
 		name  string

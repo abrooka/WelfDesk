@@ -269,6 +269,8 @@ function toolIcon(name: string): string {
       return 'search'
     case 'glob':
       return 'layers'
+    case 'task':
+      return 'spark'
     default:
       return 'file'
   }
@@ -298,8 +300,8 @@ function ToolCard({
   const [showOutput, setShowOutput] = useState(true)
 
   useEffect(() => {
-    if (auto.current && (result?.diff || result?.isError)) setOpen(true)
-  }, [result?.diff, result?.isError])
+    if (auto.current && (result?.diff || result?.isError || (name === 'task' && !!result))) setOpen(true)
+  }, [result?.diff, result?.isError, result?.toolCallId, name])
 
   const state = !result ? 'running' : result.isError ? 'error' : 'ok'
 

@@ -50,6 +50,8 @@ export function toolSummary(name: string, raw: string | undefined): string {
       return pick('pattern') ? `/${pick('pattern')}/` : 'search'
     case 'glob':
       return pick('pattern')
+    case 'task':
+      return pick('description') || 'subagent'
     default:
       return firstLine(raw ?? '', 70)
   }

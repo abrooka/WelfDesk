@@ -205,7 +205,7 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 	}
 	registry := tools.NewRegistry(roots)
 	baseSystem := systemPrompt(ws)
-	toolDefs := append(registry.Definitions(), askUserTool(), todoTool())
+	toolDefs := append(registry.Definitions(), askUserTool(), todoTool(), taskTool())
 
 	for turn := 0; turn < cfg.MaxTurns; turn++ {
 		history, err := a.history(sessionID)
@@ -337,6 +337,8 @@ func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, regist
 	switch {
 	case call.Name == "todo_write":
 		a.updateTodos(sessionID, runID, call.Arguments, &result)
+	case call.Name == "task":
+		a.runTask(ctx, sessionID, runID, call.Arguments, &result)
 	case call.Name == "ask_user":
 		a.askUser(ctx, sessionID, runID, call, &result, started)
 		return
@@ -690,7 +692,8 @@ func systemPrompt(ws domain.Workspace) string {
 	b.WriteString("You are Weft, an agentic coding assistant running on the user's machine.\n")
 	b.WriteString("You can inspect and modify the workspace with the provided tools. ")
 	b.WriteString("Read a file before editing it, keep changes focused, and verify your work when possible. ")
-	b.WriteString("For multi-step tasks, keep a short plan with todo_write and update it as you make progress.\n\n")
+	b.WriteString("For multi-step tasks, keep a short plan with todo_write and update it as you make progress. ")
+	b.WriteString("Delegate self-contained exploration or sizeable side work to a subagent with task.\n\n")
 	b.WriteString("Workspace folders:\n")
 	for _, folder := range ws.Folders {
 		fmt.Fprintf(&b, "- %s: %s\n", folder.Name, folder.Path)

@@ -20,9 +20,10 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 		}
 	}
 
-	// Tiny offline tool demos: "/read <path>", "/bash <command>", "/ask" and "/plan".
+	// Tiny offline tool demos: "/read <path>", "/bash <command>", "/ask", "/plan" and "/task".
 	trimmed := strings.TrimSpace(last)
-	if strings.HasPrefix(trimmed, "/read ") || strings.HasPrefix(trimmed, "/bash ") || trimmed == "/ask" || trimmed == "/plan" {
+	if strings.HasPrefix(trimmed, "/read ") || strings.HasPrefix(trimmed, "/bash ") ||
+		trimmed == "/ask" || trimmed == "/plan" || trimmed == "/task" {
 		go func() {
 			defer close(ch)
 			switch {
@@ -43,6 +44,14 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 						`{"id":"inspect","content":"Inspect the current implementation","status":"completed"},` +
 						`{"id":"change","content":"Make the requested change","status":"in_progress"},` +
 						`{"id":"verify","content":"Run tests and verify behavior","status":"pending"}]}`,
+				}})
+			case trimmed == "/task":
+				send(ctx, ch, Delta{Type: "text", Text: "Delegating a closer look to a subagent."})
+				send(ctx, ch, Delta{Type: "tool_call", ToolCall: &ToolCall{
+					ID:   "mock-task",
+					Name: "task",
+					Arguments: `{"description":"Inspect the workspace",` +
+						`"prompt":"List the workspace folders and report what this project appears to do."}`,
 				}})
 			case trimmed == "/ask":
 				send(ctx, ch, Delta{Type: "text", Text: "I need a couple of decisions before continuing."})
