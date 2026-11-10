@@ -13,6 +13,7 @@ import { SettingsDialog } from './components/SettingsDialog'
 import { WorkspaceDialog } from './components/WorkspaceDialog'
 import { QuickOpen } from './components/QuickOpen'
 import { FilePreview } from './components/FilePreview'
+import { BrowserPanel } from './components/BrowserPanel'
 import { Icon } from './components/Icon'
 import { Toasts, type ToastItem } from './components/Toasts'
 import { useSessionStream } from './hooks/useSessionStream'
@@ -76,6 +77,7 @@ export default function App() {
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [quickOpen, setQuickOpen] = useState(false)
   const [quickPreview, setQuickPreview] = useState<{ path: string; content: string; truncated: boolean } | null>(null)
+  const [browserOpen, setBrowserOpen] = useState(false)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [requestRevision, setRequestRevision] = useState(0)
   const [changeRevision, setChangeRevision] = useState(0)
@@ -455,6 +457,10 @@ export default function App() {
         event.preventDefault()
         setQuickOpen((value) => !value)
       }
+      if (mod && event.shiftKey && event.key.toLowerCase() === 'b' && activeWorkspaceId) {
+        event.preventDefault()
+        setBrowserOpen((value) => !value)
+      }
       if (mod && event.key === 'Tab' && activeWorkspaceId) {
         const ids = sessionTabs[activeWorkspaceId] ?? []
         if (ids.length > 1) {
@@ -537,6 +543,15 @@ export default function App() {
               {activeSession && (
                 <button className="icon-btn" onClick={() => setQuickOpen(true)} title="Quick open (Ctrl+P)">
                   <Icon name="search" size={15} />
+                </button>
+              )}
+              {activeWorkspace && (
+                <button
+                  className={`icon-btn ${browserOpen ? 'active' : ''}`}
+                  onClick={() => setBrowserOpen((value) => !value)}
+                  title="Browser preview (Ctrl+Shift+B)"
+                >
+                  <Icon name="globe" size={15} />
                 </button>
               )}
               <button
@@ -724,6 +739,15 @@ export default function App() {
         <FilePreview
           file={quickPreview}
           onClose={() => setQuickPreview(null)}
+          onNotify={notify}
+        />
+      )}
+
+      {browserOpen && activeWorkspace && (
+        <BrowserPanel
+          key={activeWorkspace.id}
+          workspaceId={activeWorkspace.id}
+          onClose={() => setBrowserOpen(false)}
           onNotify={notify}
         />
       )}
