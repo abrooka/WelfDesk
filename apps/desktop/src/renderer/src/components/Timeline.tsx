@@ -300,6 +300,8 @@ function toolIcon(name: string): string {
       return 'spark'
     case 'remember':
       return 'list'
+    case 'use_skill':
+      return 'book'
     default:
       return 'file'
   }

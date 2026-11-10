@@ -3052,7 +3052,8 @@ button:disabled {
   max-width: 210px;
 }
 
-.settings-appearance {
+.settings-appearance,
+.settings-skills {
   margin-top: 26px;
   padding-top: 20px;
   border-top: 1px solid var(--line);

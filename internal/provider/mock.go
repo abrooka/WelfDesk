@@ -21,11 +21,12 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 	}
 
 	// Tiny offline tool demos: "/read <path>", "/bash <command>", "/ask", "/plan", "/task",
-	// "/remember <text>" and "/mcp".
+	// "/remember <text>", "/skill [name]" and "/mcp".
 	trimmed := strings.TrimSpace(last)
 	if strings.HasPrefix(trimmed, "/read ") || strings.HasPrefix(trimmed, "/bash ") ||
 		strings.HasPrefix(trimmed, "/remember ") ||
-		trimmed == "/ask" || trimmed == "/plan" || trimmed == "/task" || trimmed == "/mcp" {
+		trimmed == "/ask" || trimmed == "/plan" || trimmed == "/task" || trimmed == "/mcp" ||
+		trimmed == "/skill" || strings.HasPrefix(trimmed, "/skill ") {
 		go func() {
 			defer close(ch)
 			switch {
@@ -62,6 +63,21 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 					ID:        "mock-remember",
 					Name:      "remember",
 					Arguments: `{"text":"` + escapeJSON(text) + `"}`,
+				}})
+			case trimmed == "/skill" || strings.HasPrefix(trimmed, "/skill "):
+				name := strings.TrimSpace(strings.TrimPrefix(trimmed, "/skill"))
+				if name == "" {
+					name = firstSkillName(req.System)
+				}
+				if name == "" {
+					send(ctx, ch, Delta{Type: "text", Text: "No skills are available. Add a SKILL.md under .weft/skills in the workspace."})
+					break
+				}
+				send(ctx, ch, Delta{Type: "text", Text: "Loading the " + name + " skill."})
+				send(ctx, ch, Delta{Type: "tool_call", ToolCall: &ToolCall{
+					ID:        "mock-skill",
+					Name:      "use_skill",
+					Arguments: `{"name":"` + escapeJSON(name) + `"}`,
 				}})
 			case trimmed == "/mcp":
 				name := ""
@@ -139,6 +155,31 @@ func chunkText(s string, size int) []string {
 		s = s[n:]
 	}
 	return out
+}
+
+func firstSkillName(system string) string {
+	inSkills := false
+	for _, line := range strings.Split(system, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "# Skills" {
+			inSkills = true
+			continue
+		}
+		if !inSkills {
+			continue
+		}
+		if strings.HasPrefix(line, "# ") {
+			return ""
+		}
+		if strings.HasPrefix(line, "- ") {
+			name := strings.TrimPrefix(line, "- ")
+			if i := strings.Index(name, ":"); i > 0 {
+				name = name[:i]
+			}
+			return strings.TrimSpace(name)
+		}
+	}
+	return ""
 }
 
 func escapeJSON(s string) string {

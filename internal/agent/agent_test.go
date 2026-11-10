@@ -755,6 +755,148 @@ func (p *memoryProvider) lastSystem() string {
 	return p.system
 }
 
+func TestSkillsLoadAndInject(t *testing.T) {
+	dataDir := t.TempDir()
+	project := t.TempDir()
+	writeFile(t, filepath.Join(dataDir, "skills", "release", "SKILL.md"),
+		"---\nname: release\ndescription: User release checklist.\n---\nUSER-RELEASE-BODY\n")
+	writeFile(t, filepath.Join(project, ".weft", "skills", "release", "SKILL.md"),
+		"---\nname: release\ndescription: Project release checklist.\n---\nPROJECT-RELEASE-BODY\n")
+	writeFile(t, filepath.Join(project, ".weft", "skills", "review", "SKILL.md"),
+		"---\nname: review\ndescription: Review code changes.\n---\nREVIEW-BODY\n")
+	writeFile(t, filepath.Join(project, ".weft", "skills", "review", "checklist.md"), "CHECKLIST")
+	writeFile(t, filepath.Join(project, ".weft", "skills", "broken", "SKILL.md"),
+		"---\nname: broken\n---\nBROKEN-BODY\n")
+
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ws, err := st.CreateWorkspace("demo", []domain.Folder{{Path: project}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := st.CreateSession(ws.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults(dataDir)
+	cfg.PermissionMode = "yolo"
+	prov := &skillProvider{}
+	ag := New(st, cfg, prov)
+
+	if err := ag.Send(context.Background(), sess.ID, "load the review skill"); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, st, sess.ID)
+
+	system := prov.lastSystem()
+	for _, want := range []string{"# Skills", "- review: Review code changes.", "- release: Project release checklist."} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("skills catalog is missing %q:\n%s", want, system)
+		}
+	}
+	for _, unwanted := range []string{"User release checklist.", "- broken:"} {
+		if strings.Contains(system, unwanted) {
+			t.Fatalf("skills catalog should not contain %q:\n%s", unwanted, system)
+		}
+	}
+	if !prov.hasTool("use_skill") {
+		t.Fatal("use_skill was not offered to the model")
+	}
+
+	events, err := st.EventsAfter(sess.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output string
+	for _, ev := range events {
+		if ev.Type != domain.EventToolResult {
+			continue
+		}
+		var data domain.ToolResultData
+		if err := decode(ev.Data, &data); err != nil {
+			t.Fatal(err)
+		}
+		if data.Name == "use_skill" {
+			output = data.Output
+		}
+	}
+	for _, want := range []string{"# Skill: review", "REVIEW-BODY", "Supporting files:", "- checklist.md"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("skill output is missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "PROJECT-RELEASE-BODY") {
+		t.Fatalf("review skill output leaked another skill:\n%s", output)
+	}
+
+	result, isError := loadSkill(loadSkills(ws, dataDir), `{"name":"missing"}`)
+	if !isError || !strings.Contains(result, "Unknown skill") {
+		t.Fatalf("unknown skill was not rejected: %q %v", result, isError)
+	}
+}
+
+type skillProvider struct {
+	mu     sync.Mutex
+	system string
+	tools  []string
+}
+
+func (p *skillProvider) Name() string { return "fake" }
+
+func (p *skillProvider) Stream(ctx context.Context, req provider.Request) (<-chan provider.Delta, error) {
+	p.mu.Lock()
+	p.system = req.System
+	p.tools = p.tools[:0]
+	for _, tool := range req.Tools {
+		p.tools = append(p.tools, tool.Name)
+	}
+	p.mu.Unlock()
+
+	hasResult := false
+	for _, message := range req.Messages {
+		for _, block := range message.Content {
+			if block.Type == provider.BlockToolResult {
+				hasResult = true
+			}
+		}
+	}
+	ch := make(chan provider.Delta, 4)
+	go func() {
+		defer close(ch)
+		if hasResult {
+			emit(ctx, ch, provider.Delta{Type: "text", Text: "Skill loaded."})
+		} else {
+			emit(ctx, ch, provider.Delta{Type: "tool_call", ToolCall: &provider.ToolCall{
+				ID:        "skill-1",
+				Name:      "use_skill",
+				Arguments: `{"name":"review"}`,
+			}})
+		}
+		emit(ctx, ch, provider.Delta{Type: "done"})
+	}()
+	return ch, nil
+}
+
+func (p *skillProvider) lastSystem() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.system
+}
+
+func (p *skillProvider) hasTool(name string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, tool := range p.tools {
+		if tool == name {
+			return true
+		}
+	}
+	return false
+}
+
 func TestMCPToolRunsThroughAgent(t *testing.T) {
 	project := t.TempDir()
 	st, err := store.Open(t.TempDir())

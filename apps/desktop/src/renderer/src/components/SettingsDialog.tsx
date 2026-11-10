@@ -288,6 +288,14 @@ export function SettingsDialog({
         </button>
       </section>
 
+      <section className="settings-section settings-skills">
+        <h3>Skills</h3>
+        <p className="settings-hint">
+          Skills are reusable task instructions. Add a folder containing a SKILL.md with a name and description under
+          .weft/skills in a workspace, or under skills in the data folder. The agent loads matching skills on demand.
+        </p>
+      </section>
+
       <section className="settings-section settings-appearance">
         <h3>Appearance</h3>
         <p className="settings-hint">Theme applies immediately and is saved on this device.</p>

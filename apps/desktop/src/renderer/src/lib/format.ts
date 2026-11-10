@@ -53,6 +53,8 @@ export function toolSummary(name: string, raw: string | undefined): string {
       return firstLine(pick('command'), 70)
     case 'remember':
       return firstLine(pick('text'), 70)
+    case 'use_skill':
+      return pick('name') || 'skill'
     case 'grep':
       return pick('pattern') ? `/${pick('pattern')}/` : 'search'
     case 'glob':

@@ -211,8 +211,12 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 	}
 	registry := tools.NewRegistry(roots)
 	mcpSet := a.mcpClient()
-	baseSystem := systemPrompt(ws, cfg.DataDir)
+	skills := loadSkills(ws, cfg.DataDir)
+	baseSystem := systemPrompt(ws, cfg.DataDir) + skillsPrompt(skills)
 	toolDefs := append(registry.Definitions(), askUserTool(), todoTool(), taskTool(), rememberTool())
+	if len(skills) > 0 {
+		toolDefs = append(toolDefs, useSkillTool())
+	}
 	toolDefs = append(toolDefs, mcpToolDefs(mcpSet)...)
 
 	for turn := 0; turn < cfg.MaxTurns; turn++ {
@@ -295,7 +299,7 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 				stop("Run cancelled")
 				return
 			}
-			a.executeTool(ctx, sessionID, runID, registry, mcpSet, call)
+			a.executeTool(ctx, sessionID, runID, registry, mcpSet, skills, call)
 		}
 	}
 
@@ -336,7 +340,7 @@ func (a *Agent) stream(ctx context.Context, sessionID, runID string, req provide
 	return text.String(), calls, usage, nil
 }
 
-func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, registry *tools.Registry, mcpSet *mcp.Set, call provider.ToolCall) {
+func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, registry *tools.Registry, mcpSet *mcp.Set, skills []skill, call provider.ToolCall) {
 	callData := domain.ToolCallData{ID: call.ID, Name: call.Name, Arguments: call.Arguments}
 	_, _ = a.store.Append(sessionID, domain.EventToolCall, runID, callData)
 
@@ -350,6 +354,8 @@ func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, regist
 		a.runTask(ctx, sessionID, runID, call.Arguments, &result)
 	case call.Name == "remember":
 		a.remember(call.Arguments, &result)
+	case call.Name == "use_skill":
+		result.Output, result.IsError = loadSkill(skills, call.Arguments)
 	case call.Name == "ask_user":
 		a.askUser(ctx, sessionID, runID, call, &result, started)
 		return
