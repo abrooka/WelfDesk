@@ -3,6 +3,7 @@ import { api } from './api'
 import { Sidebar } from './components/Sidebar'
 import { Timeline } from './components/Timeline'
 import { Composer } from './components/Composer'
+import { PlanBar, latestTodos } from './components/PlanBar'
 import { Outline } from './components/Outline'
 import { ChangesPanel } from './components/ChangesPanel'
 import { RequestsPanel } from './components/RequestsPanel'
@@ -184,6 +185,7 @@ export default function App() {
     [detail, workspaces, activeWorkspaceId],
   )
   const running = activeSession?.status === 'running'
+  const todos = useMemo(() => latestTodos(events), [events])
 
   const toggleInspector = () => {
     setInspectorOpen((value) => {
@@ -401,6 +403,7 @@ export default function App() {
                   onReveal={reveal}
                   onCopy={copy}
                 />
+                {todos.length > 0 && <PlanBar todos={todos} />}
                 <Composer sessionId={activeSession.id} running={running} onSend={send} onCancel={() => void cancel()} />
               </>
             ) : activeWorkspace ? (

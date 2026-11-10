@@ -75,8 +75,25 @@ const (
 	EventRequestStarted     = "request.started"
 	EventRequestCompleted   = "request.completed"
 	EventCheckpointReverted = "checkpoint.reverted"
+	EventTodosUpdated       = "todos.updated"
 	EventError              = "error"
 )
+
+const (
+	TodoPending    = "pending"
+	TodoInProgress = "in_progress"
+	TodoCompleted  = "completed"
+)
+
+type TodoItem struct {
+	ID      string `json:"id"`
+	Content string `json:"content"`
+	Status  string `json:"status"`
+}
+
+type TodosData struct {
+	Todos []TodoItem `json:"todos"`
+}
 
 type UserMessageData struct {
 	Text string `json:"text"`

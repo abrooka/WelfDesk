@@ -52,7 +52,7 @@ export function Outline({ events }: { events: WeftEvent[] }) {
         })
       } else if (event.type === 'tool.call') {
         const data = event.data as ToolCallData
-        if (data?.name === 'ask_user') continue
+        if (data?.name === 'ask_user' || data?.name === 'todo_write') continue
         tools.push({
           id: event.id,
           label: toolSummary(data?.name ?? '', data?.arguments),

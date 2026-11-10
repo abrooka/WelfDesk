@@ -145,7 +145,7 @@ export function Timeline({
             case 'tool.call': {
               const data = event.data as { id: string; name: string; arguments: string }
               if (!data) return null
-              if (data.name === 'ask_user') return null
+              if (data.name === 'ask_user' || data.name === 'todo_write') return null
               const result = toolResults.get(data.id)
               return (
                 <div key={event.id} id={`ev-${event.id}`} className="timeline-item tool-item">

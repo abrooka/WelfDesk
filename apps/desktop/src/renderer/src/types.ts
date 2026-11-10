@@ -156,6 +156,18 @@ export interface FileEntry {
   isDir: boolean
 }
 
+export type TodoStatus = 'pending' | 'in_progress' | 'completed'
+
+export interface TodoItem {
+  id: string
+  content: string
+  status: TodoStatus
+}
+
+export interface TodosData {
+  todos: TodoItem[]
+}
+
 export interface Checkpoint {
   id: string
   sessionId: string

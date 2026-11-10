@@ -204,8 +204,8 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 		roots = append(roots, folder.Path)
 	}
 	registry := tools.NewRegistry(roots)
-	system := systemPrompt(ws)
-	toolDefs := append(registry.Definitions(), askUserTool())
+	baseSystem := systemPrompt(ws)
+	toolDefs := append(registry.Definitions(), askUserTool(), todoTool())
 
 	for turn := 0; turn < cfg.MaxTurns; turn++ {
 		history, err := a.history(sessionID)
@@ -213,6 +213,7 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 			fail(err.Error())
 			return
 		}
+		system := baseSystem + planPrompt(a.Todos(sessionID))
 		reqID := newID()
 		snapshot := requestSnapshot{
 			RequestID: reqID,
@@ -333,35 +334,38 @@ func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, regist
 	result := domain.ToolResultData{ToolCallID: call.ID, Name: call.Name}
 	started := time.Now()
 
-	if call.Name == "ask_user" {
+	switch {
+	case call.Name == "todo_write":
+		a.updateTodos(sessionID, runID, call.Arguments, &result)
+	case call.Name == "ask_user":
 		a.askUser(ctx, sessionID, runID, call, &result, started)
 		return
-	}
-
-	allowed, reason := a.authorize(ctx, sessionID, runID, call)
-	if !allowed {
-		result.IsError = true
-		result.Output = "Permission denied by the user."
-		if reason != "" {
-			result.Output = reason
-		}
-	} else {
-		out, err := registry.Execute(ctx, call.Name, call.Arguments)
-		result.Output = out.Output
-		result.Diff = out.Diff
-		result.Path = out.Path
-		result.IsError = out.IsError
-		if err != nil {
+	default:
+		allowed, reason := a.authorize(ctx, sessionID, runID, call)
+		if !allowed {
 			result.IsError = true
-			if result.Output == "" {
-				result.Output = err.Error()
-			} else {
-				result.Output = result.Output + "\n" + err.Error()
+			result.Output = "Permission denied by the user."
+			if reason != "" {
+				result.Output = reason
 			}
-		}
-		if !result.IsError && out.Snapshot != nil {
-			if err := a.saveCheckpoint(sessionID, runID, call, out); err != nil {
-				result.Output += "\n[checkpoint could not be saved: " + err.Error() + "]"
+		} else {
+			out, err := registry.Execute(ctx, call.Name, call.Arguments)
+			result.Output = out.Output
+			result.Diff = out.Diff
+			result.Path = out.Path
+			result.IsError = out.IsError
+			if err != nil {
+				result.IsError = true
+				if result.Output == "" {
+					result.Output = err.Error()
+				} else {
+					result.Output = result.Output + "\n" + err.Error()
+				}
+			}
+			if !result.IsError && out.Snapshot != nil {
+				if err := a.saveCheckpoint(sessionID, runID, call, out); err != nil {
+					result.Output += "\n[checkpoint could not be saved: " + err.Error() + "]"
+				}
 			}
 		}
 	}
@@ -685,7 +689,8 @@ func systemPrompt(ws domain.Workspace) string {
 	var b strings.Builder
 	b.WriteString("You are Weft, an agentic coding assistant running on the user's machine.\n")
 	b.WriteString("You can inspect and modify the workspace with the provided tools. ")
-	b.WriteString("Read a file before editing it, keep changes focused, and verify your work when possible.\n\n")
+	b.WriteString("Read a file before editing it, keep changes focused, and verify your work when possible. ")
+	b.WriteString("For multi-step tasks, keep a short plan with todo_write and update it as you make progress.\n\n")
 	b.WriteString("Workspace folders:\n")
 	for _, folder := range ws.Folders {
 		fmt.Fprintf(&b, "- %s: %s\n", folder.Name, folder.Path)

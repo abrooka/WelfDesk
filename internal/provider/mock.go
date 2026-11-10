@@ -20,9 +20,9 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 		}
 	}
 
-	// Tiny offline tool demos: "/read <path>", "/bash <command>" and "/ask".
+	// Tiny offline tool demos: "/read <path>", "/bash <command>", "/ask" and "/plan".
 	trimmed := strings.TrimSpace(last)
-	if strings.HasPrefix(trimmed, "/read ") || strings.HasPrefix(trimmed, "/bash ") || trimmed == "/ask" {
+	if strings.HasPrefix(trimmed, "/read ") || strings.HasPrefix(trimmed, "/bash ") || trimmed == "/ask" || trimmed == "/plan" {
 		go func() {
 			defer close(ch)
 			switch {
@@ -33,6 +33,16 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 					ID:        "mock-read",
 					Name:      "read_file",
 					Arguments: `{"path":"` + escapeJSON(path) + `"}`,
+				}})
+			case trimmed == "/plan":
+				send(ctx, ch, Delta{Type: "text", Text: "Here is the plan I will follow."})
+				send(ctx, ch, Delta{Type: "tool_call", ToolCall: &ToolCall{
+					ID:   "mock-plan",
+					Name: "todo_write",
+					Arguments: `{"todos":[` +
+						`{"id":"inspect","content":"Inspect the current implementation","status":"completed"},` +
+						`{"id":"change","content":"Make the requested change","status":"in_progress"},` +
+						`{"id":"verify","content":"Run tests and verify behavior","status":"pending"}]}`,
 				}})
 			case trimmed == "/ask":
 				send(ctx, ch, Delta{Type: "text", Text: "I need a couple of decisions before continuing."})

@@ -278,6 +278,140 @@ func (p *askProvider) Stream(ctx context.Context, req provider.Request) (<-chan 
 	return ch, nil
 }
 
+func TestTodoWriteStoresPlanAndInjectsPrompt(t *testing.T) {
+	ag, st, _, sessionID := permissionFixture(t, "ask")
+	ag.UpdateConfig(ag.Config(), &todoProvider{})
+	if err := ag.Send(context.Background(), sessionID, "plan"); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, st, sessionID)
+
+	var plan domain.TodosData
+	sawPlan, sawOutput := false, false
+	events, err := st.EventsAfter(sessionID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range events {
+		switch ev.Type {
+		case domain.EventTodosUpdated:
+			if err := decode(ev.Data, &plan); err != nil {
+				t.Fatal(err)
+			}
+			sawPlan = true
+		case domain.EventToolResult:
+			var data domain.ToolResultData
+			if err := decode(ev.Data, &data); err != nil {
+				t.Fatal(err)
+			}
+			if data.IsError || !strings.Contains(data.Output, "Plan updated: 1/2 done") || !strings.Contains(data.Output, "[~] Apply the fix") {
+				t.Fatalf("unexpected todo_write result: %+v", data)
+			}
+			sawOutput = true
+		}
+	}
+	if !sawPlan || !sawOutput {
+		t.Fatalf("incomplete todo flow: plan=%v output=%v", sawPlan, sawOutput)
+	}
+	if len(plan.Todos) != 2 || plan.Todos[0].ID != "todo-1" || plan.Todos[1].ID != "edit" {
+		t.Fatalf("unexpected stored plan: %+v", plan.Todos)
+	}
+	todos := ag.Todos(sessionID)
+	if len(todos) != 2 || todos[1].Status != domain.TodoInProgress {
+		t.Fatalf("unexpected current plan: %+v", todos)
+	}
+
+	if err := ag.Send(context.Background(), sessionID, "continue"); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, st, sessionID)
+
+	events, err = st.EventsAfter(sessionID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawPrompt := false
+	for _, ev := range events {
+		if ev.Type != domain.EventRequestStarted {
+			continue
+		}
+		var snapshot requestSnapshot
+		if err := decode(ev.Data, &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(snapshot.System, "# Current plan") && strings.Contains(snapshot.System, "[~] Apply the fix") {
+			sawPrompt = true
+		}
+	}
+	if !sawPrompt {
+		t.Fatal("the plan was not injected into the system prompt")
+	}
+}
+
+func TestNormalizeTodosValidatesItems(t *testing.T) {
+	cases := []struct {
+		name  string
+		items []domain.TodoItem
+	}{
+		{
+			name: "two in progress",
+			items: []domain.TodoItem{
+				{Content: "a", Status: domain.TodoInProgress},
+				{Content: "b", Status: domain.TodoInProgress},
+			},
+		},
+		{name: "empty content", items: []domain.TodoItem{{Content: "  ", Status: domain.TodoPending}}},
+		{name: "bad status", items: []domain.TodoItem{{Content: "a", Status: "doing"}}},
+		{
+			name: "duplicate ids",
+			items: []domain.TodoItem{
+				{ID: "same", Content: "a", Status: domain.TodoPending},
+				{ID: "same", Content: "b", Status: domain.TodoPending},
+			},
+		},
+	}
+	for _, testCase := range cases {
+		if _, err := normalizeTodos(testCase.items); err == nil {
+			t.Fatalf("%s: expected an error", testCase.name)
+		}
+	}
+	if _, err := normalizeTodos(nil); err != nil {
+		t.Fatalf("empty plan should clear the list: %v", err)
+	}
+}
+
+type todoProvider struct{}
+
+func (p *todoProvider) Name() string { return "fake" }
+
+func (p *todoProvider) Stream(ctx context.Context, req provider.Request) (<-chan provider.Delta, error) {
+	hasResult := false
+	for _, message := range req.Messages {
+		for _, block := range message.Content {
+			if block.Type == provider.BlockToolResult {
+				hasResult = true
+			}
+		}
+	}
+	ch := make(chan provider.Delta, 4)
+	go func() {
+		defer close(ch)
+		if hasResult {
+			emit(ctx, ch, provider.Delta{Type: "text", Text: "done"})
+		} else {
+			emit(ctx, ch, provider.Delta{Type: "tool_call", ToolCall: &provider.ToolCall{
+				ID:   "plan-1",
+				Name: "todo_write",
+				Arguments: `{"todos":[
+					{"content":"Read the code","status":"completed"},
+					{"id":"edit","content":"Apply the fix","status":"in_progress"}]}`,
+			}})
+		}
+		emit(ctx, ch, provider.Delta{Type: "done"})
+	}()
+	return ch, nil
+}
+
 func TestCheckpointRevertRestoresFile(t *testing.T) {
 	ag, st, project, sessionID := permissionFixture(t, "yolo")
 	path := filepath.Join(project, "notes.txt")

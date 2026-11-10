@@ -1917,6 +1917,136 @@ button:disabled {
   background: var(--red-soft-hover);
 }
 
+/* Plan */
+
+.plan-wrap {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 30px;
+}
+
+.plan {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.plan-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  text-align: left;
+  color: var(--muted);
+}
+
+.plan-head:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.plan-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.plan-label {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.plan-meter {
+  width: 54px;
+  height: 3px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.plan-meter span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.plan-count {
+  font-size: 10px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-current {
+  flex: 1;
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 3px 10px 8px;
+  border-top: 1px solid var(--line);
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.plan-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.plan-mark {
+  width: 14px;
+  height: 18px;
+  flex: 0 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+}
+
+.plan-item.completed .plan-mark {
+  color: var(--green);
+}
+
+.plan-item.completed .plan-text {
+  color: var(--faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--line-strong);
+}
+
+.plan-item.in_progress .plan-mark {
+  color: var(--accent);
+}
+
+.plan-item.in_progress .plan-text {
+  color: var(--text);
+}
+
+.plan-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+}
+
 /* Inspector */
 
 .inspector {
