@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from './api'
 import { Sidebar } from './components/Sidebar'
+import { SessionTabs } from './components/SessionTabs'
 import { Timeline } from './components/Timeline'
 import { Composer } from './components/Composer'
 import { PlanBar, latestTodos } from './components/PlanBar'
@@ -22,6 +23,29 @@ const STORAGE = {
   workspace: 'weft.workspace',
   session: 'weft.session',
   inspector: 'weft.inspector',
+  tabs: 'weft.tabs',
+}
+
+type SessionTabsByWorkspace = Record<string, string[]>
+
+function readSessionTabs(): SessionTabsByWorkspace {
+  try {
+    const raw = localStorage.getItem(STORAGE.tabs)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const tabs: SessionTabsByWorkspace = {}
+    for (const [workspaceId, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue
+      tabs[workspaceId] = value.filter((item): item is string => typeof item === 'string')
+    }
+    return tabs
+  } catch {
+    return {}
+  }
+}
+
+function saveSessionTabs(tabs: SessionTabsByWorkspace) {
+  localStorage.setItem(STORAGE.tabs, JSON.stringify(tabs))
 }
 
 export default function App() {
@@ -31,6 +55,7 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [sessionTabs, setSessionTabs] = useState<SessionTabsByWorkspace>(readSessionTabs)
   const [detail, setDetail] = useState<{ session: Session; workspace: Workspace } | null>(null)
   const [booting, setBooting] = useState(true)
   const [appError, setAppError] = useState<string | null>(null)
@@ -105,22 +130,58 @@ export default function App() {
     }
   }, [activeWorkspaceId])
 
+  const openSession = useCallback((session: Session) => {
+    setSessionTabs((current) => {
+      const ids = current[session.workspaceId] ?? []
+      if (ids.includes(session.id)) return current
+      const next = { ...current, [session.workspaceId]: [...ids, session.id] }
+      saveSessionTabs(next)
+      return next
+    })
+    setActiveSessionId(session.id)
+  }, [])
+
   useEffect(() => {
     setSessions([])
-    setActiveSessionId(null)
     setDetail(null)
-    if (!activeWorkspaceId) return
+    if (!activeWorkspaceId) {
+      setActiveSessionId(null)
+      return
+    }
     localStorage.setItem(STORAGE.workspace, activeWorkspaceId)
+    const ids = sessionTabs[activeWorkspaceId] ?? []
+    const stored = localStorage.getItem(STORAGE.session)
+    setActiveSessionId(ids.length > 0 ? (stored && ids.includes(stored) ? stored : ids[0]) : null)
     void refreshSessions()
+    // sessionTabs is only read when the workspace changes.
   }, [activeWorkspaceId, refreshSessions])
 
   useEffect(() => {
-    if (sessions.length === 0) return
-    if (activeSessionId && sessions.some((session) => session.id === activeSessionId)) return
+    if (!activeWorkspaceId || sessions.length === 0) return
+    const available = new Set(sessions.map((session) => session.id))
+    const currentIds = sessionTabs[activeWorkspaceId]
+    const validIds = (currentIds ?? []).filter((id) => available.has(id))
+    if (currentIds && validIds.length !== currentIds.length) {
+      const next = { ...sessionTabs, [activeWorkspaceId]: validIds }
+      saveSessionTabs(next)
+      setSessionTabs(next)
+    }
+    if (activeSessionId && available.has(activeSessionId)) return
     const stored = localStorage.getItem(STORAGE.session)
-    const next = sessions.find((session) => session.id === stored) ?? sessions[0]
-    setActiveSessionId(next.id)
-  }, [sessions, activeSessionId])
+    // With tabs present, only reopen a tab: sessions[0] can be a closed session.
+    const next = currentIds
+      ? sessions.find((session) => session.id === validIds[0])
+      : ((stored ? sessions.find((session) => session.id === stored) : undefined) ?? sessions[0])
+    if (next) openSession(next)
+  }, [sessions, activeWorkspaceId, activeSessionId, sessionTabs, openSession])
+
+  const anyRunning = sessions.some((session) => session.status === 'running')
+
+  useEffect(() => {
+    if (!anyRunning || !activeWorkspaceId) return
+    const timer = window.setInterval(() => void refreshSessions(), 2500)
+    return () => window.clearInterval(timer)
+  }, [anyRunning, activeWorkspaceId, refreshSessions])
 
   useEffect(() => {
     if (activeSessionId) localStorage.setItem(STORAGE.session, activeSessionId)
@@ -201,8 +262,30 @@ export default function App() {
   }
 
   const selectSession = (id: string) => {
+    const session = sessions.find((item) => item.id === id)
+    if (session) {
+      openSession(session)
+      return
+    }
     setActiveSessionId(id)
   }
+
+  const closeTab = useCallback(
+    (id: string) => {
+      if (!activeWorkspaceId) return
+      const ids = sessionTabs[activeWorkspaceId] ?? []
+      const index = ids.indexOf(id)
+      if (index < 0) return
+      const nextIds = ids.filter((tabId) => tabId !== id)
+      const next = { ...sessionTabs, [activeWorkspaceId]: nextIds }
+      saveSessionTabs(next)
+      setSessionTabs(next)
+      if (activeSessionId === id) {
+        setActiveSessionId(nextIds.length > 0 ? nextIds[Math.min(index, nextIds.length - 1)] : null)
+      }
+    },
+    [activeWorkspaceId, activeSessionId, sessionTabs],
+  )
 
   const newSession = useCallback(async () => {
     if (!activeWorkspaceId) {
@@ -212,11 +295,11 @@ export default function App() {
     try {
       const session = await api.createSession(activeWorkspaceId)
       setSessions((current) => [session, ...current])
-      setActiveSessionId(session.id)
+      openSession(session)
     } catch (cause) {
       notify(cause instanceof Error ? cause.message : 'Failed to create session', 'error')
     }
-  }, [activeWorkspaceId, notify])
+  }, [activeWorkspaceId, notify, openSession])
 
   const workspaceCreated = useCallback(
     async (workspace: Workspace) => {
@@ -227,12 +310,12 @@ export default function App() {
       try {
         const session = await api.createSession(workspace.id)
         setSessions([session])
-        setActiveSessionId(session.id)
+        openSession(session)
       } catch {
         // A session can be created from the sidebar later.
       }
     },
-    [],
+    [openSession],
   )
 
   const send = async (text: string) => {
@@ -241,6 +324,12 @@ export default function App() {
       await api.send(activeSessionId, text)
       setDetail((current) =>
         current ? { ...current, session: { ...current.session, status: 'running' } } : current,
+      )
+      // Keep the tab status live after switching away from this session.
+      setSessions((current) =>
+        current.map((session) =>
+          session.id === activeSessionId ? { ...session, status: 'running' } : session,
+        ),
       )
     } catch (cause) {
       notify(cause instanceof Error ? cause.message : 'Failed to send message', 'error')
@@ -303,10 +392,19 @@ export default function App() {
         event.preventDefault()
         void newSession()
       }
+      if (mod && event.key === 'Tab' && activeWorkspaceId) {
+        const ids = sessionTabs[activeWorkspaceId] ?? []
+        if (ids.length > 1) {
+          event.preventDefault()
+          const index = Math.max(0, ids.indexOf(activeSessionId ?? ''))
+          const next = ids[(index + (event.shiftKey ? -1 : 1) + ids.length) % ids.length]
+          setActiveSessionId(next)
+        }
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [newSession])
+  }, [newSession, activeWorkspaceId, activeSessionId, sessionTabs])
 
   if (booting) {
     return (
@@ -379,6 +477,16 @@ export default function App() {
             </div>
           </div>
         </header>
+
+        {activeWorkspaceId && (
+          <SessionTabs
+            sessions={sessions}
+            tabIds={sessionTabs[activeWorkspaceId] ?? []}
+            activeSessionId={activeSessionId}
+            onSelect={selectSession}
+            onClose={closeTab}
+          />
+        )}
 
         {appError && (
           <div className="offline-banner">
