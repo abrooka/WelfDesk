@@ -20,6 +20,7 @@ import (
 	"github.com/weftdesk/weft/internal/agent"
 	"github.com/weftdesk/weft/internal/config"
 	"github.com/weftdesk/weft/internal/domain"
+	"github.com/weftdesk/weft/internal/index"
 	"github.com/weftdesk/weft/internal/provider"
 	"github.com/weftdesk/weft/internal/store"
 	"github.com/weftdesk/weft/internal/tools"
@@ -30,6 +31,8 @@ type Server struct {
 	store  *store.Store
 	agent  *agent.Agent
 	webDir string
+
+	fileIndex index.Cache
 
 	cfgMu sync.RWMutex
 	cfg   config.Config
@@ -83,6 +86,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/checkpoints/{checkpointId}/revert", s.revertCheckpoint)
 	mux.HandleFunc("POST /api/sessions/{id}/runs/{runId}/revert", s.revertRun)
 	mux.HandleFunc("GET /api/sessions/{id}/files", s.listFiles)
+	mux.HandleFunc("GET /api/sessions/{id}/files/search", s.searchFiles)
 	mux.HandleFunc("GET /api/sessions/{id}/file", s.readWorkspaceFile)
 	mux.HandleFunc("GET /", s.serveWeb)
 	return withCORS(mux)
@@ -305,7 +309,11 @@ func (s *Server) workspaceGit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"repos": worktree.Detect(ws)})
+	repos := worktree.Detect(ws)
+	if repos == nil {
+		repos = []worktree.Repo{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"repos": repos})
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
@@ -696,6 +704,23 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 		"path":    target,
 		"entries": out,
 	})
+}
+
+func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
+	sess, ws, ok := s.sessionWorkspace(w, r)
+	if !ok {
+		return
+	}
+	ws = worktree.Apply(ws, sess.Worktree)
+	roots := make([]string, 0, len(ws.Folders))
+	for _, folder := range ws.Folders {
+		roots = append(roots, folder.Path)
+	}
+	hits := index.Match(s.fileIndex.Files(roots), r.URL.Query().Get("q"), 50)
+	if hits == nil {
+		hits = []index.File{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"files": hits})
 }
 
 func (s *Server) readWorkspaceFile(w http.ResponseWriter, r *http.Request) {

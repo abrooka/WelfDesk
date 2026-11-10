@@ -20,11 +20,11 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 		}
 	}
 
-	// Tiny offline tool demos: "/read <path>", "/bash <command>", "/ask", "/plan", "/task",
-	// "/remember <text>", "/skill [name]" and "/mcp".
+	// Tiny offline tool demos: "/read <path>", "/bash <command>", "/find <query>", "/ask",
+	// "/plan", "/task", "/remember <text>", "/skill [name]" and "/mcp".
 	trimmed := strings.TrimSpace(last)
 	if strings.HasPrefix(trimmed, "/read ") || strings.HasPrefix(trimmed, "/bash ") ||
-		strings.HasPrefix(trimmed, "/remember ") ||
+		strings.HasPrefix(trimmed, "/find ") || strings.HasPrefix(trimmed, "/remember ") ||
 		trimmed == "/ask" || trimmed == "/plan" || trimmed == "/task" || trimmed == "/mcp" ||
 		trimmed == "/skill" || strings.HasPrefix(trimmed, "/skill ") {
 		go func() {
@@ -37,6 +37,14 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 					ID:        "mock-read",
 					Name:      "read_file",
 					Arguments: `{"path":"` + escapeJSON(path) + `"}`,
+				}})
+			case strings.HasPrefix(trimmed, "/find "):
+				query := strings.TrimSpace(trimmed[len("/find "):])
+				send(ctx, ch, Delta{Type: "text", Text: "Searching the workspace file index."})
+				send(ctx, ch, Delta{Type: "tool_call", ToolCall: &ToolCall{
+					ID:        "mock-find",
+					Name:      "find_files",
+					Arguments: `{"query":"` + escapeJSON(query) + `"}`,
 				}})
 			case trimmed == "/plan":
 				send(ctx, ch, Delta{Type: "text", Text: "Here is the plan I will follow."})

@@ -11,11 +11,13 @@ import { RequestsPanel } from './components/RequestsPanel'
 import { FilesPanel } from './components/FilesPanel'
 import { SettingsDialog } from './components/SettingsDialog'
 import { WorkspaceDialog } from './components/WorkspaceDialog'
+import { QuickOpen } from './components/QuickOpen'
+import { FilePreview } from './components/FilePreview'
 import { Icon } from './components/Icon'
 import { Toasts, type ToastItem } from './components/Toasts'
 import { useSessionStream } from './hooks/useSessionStream'
 import { applyTheme, currentTheme, type ThemeId } from './lib/theme'
-import type { Config, Health, QuestionAnswer, Repo, Session, WeftEvent, Workspace } from './types'
+import type { Config, Health, IndexedFile, QuestionAnswer, Repo, Session, WeftEvent, Workspace } from './types'
 
 type InspectorTab = 'outline' | 'changes' | 'requests' | 'files'
 
@@ -72,6 +74,8 @@ export default function App() {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('outline')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
+  const [quickOpen, setQuickOpen] = useState(false)
+  const [quickPreview, setQuickPreview] = useState<{ path: string; content: string; truncated: boolean } | null>(null)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [requestRevision, setRequestRevision] = useState(0)
   const [changeRevision, setChangeRevision] = useState(0)
@@ -208,6 +212,24 @@ export default function App() {
       cancelled = true
     }
   }, [activeWorkspaceId])
+
+  useEffect(() => {
+    if (!activeSessionId) setQuickOpen(false)
+  }, [activeSessionId])
+
+  const openQuickFile = useCallback(
+    async (file: IndexedFile) => {
+      if (!activeSessionId) return
+      setQuickOpen(false)
+      try {
+        const data = await api.file(activeSessionId, file.path)
+        setQuickPreview({ path: data.path, content: data.content, truncated: data.truncated })
+      } catch (cause) {
+        notify(cause instanceof Error ? cause.message : 'Failed to open file', 'error')
+      }
+    },
+    [activeSessionId, notify],
+  )
 
   useEffect(() => {
     if (activeSessionId) localStorage.setItem(STORAGE.session, activeSessionId)
@@ -429,6 +451,10 @@ export default function App() {
         event.preventDefault()
         void newSession()
       }
+      if (mod && event.key.toLowerCase() === 'p' && activeSessionId) {
+        event.preventDefault()
+        setQuickOpen((value) => !value)
+      }
       if (mod && event.key === 'Tab' && activeWorkspaceId) {
         const ids = sessionTabs[activeWorkspaceId] ?? []
         if (ids.length > 1) {
@@ -507,6 +533,11 @@ export default function App() {
                 <span className={`connection ${connected ? 'on' : 'off'}`} title={connected ? 'Live stream connected' : 'Reconnecting'}>
                   <span className="status-dot" />
                 </span>
+              )}
+              {activeSession && (
+                <button className="icon-btn" onClick={() => setQuickOpen(true)} title="Quick open (Ctrl+P)">
+                  <Icon name="search" size={15} />
+                </button>
               )}
               <button
                 className={`icon-btn ${inspectorOpen ? 'active' : ''}`}
@@ -677,6 +708,22 @@ export default function App() {
         <WorkspaceDialog
           onClose={() => setWorkspaceOpen(false)}
           onCreated={(workspace) => void workspaceCreated(workspace)}
+          onNotify={notify}
+        />
+      )}
+
+      {quickOpen && activeSession && (
+        <QuickOpen
+          sessionId={activeSession.id}
+          onClose={() => setQuickOpen(false)}
+          onPick={(file) => void openQuickFile(file)}
+        />
+      )}
+
+      {quickPreview && (
+        <FilePreview
+          file={quickPreview}
+          onClose={() => setQuickPreview(null)}
           onNotify={notify}
         />
       )}

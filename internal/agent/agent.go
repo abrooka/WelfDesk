@@ -855,7 +855,7 @@ func appendInstructions(b *strings.Builder, heading, path string, limit int) int
 
 func readOnlyTool(name string) bool {
 	switch name {
-	case "read_file", "glob", "grep":
+	case "read_file", "glob", "grep", "find_files":
 		return true
 	}
 	return false

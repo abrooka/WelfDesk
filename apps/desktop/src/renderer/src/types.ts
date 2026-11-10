@@ -185,6 +185,12 @@ export interface FileEntry {
   isDir: boolean
 }
 
+export interface IndexedFile {
+  root: string
+  path: string
+  rel: string
+}
+
 export type TodoStatus = 'pending' | 'in_progress' | 'completed'
 
 export interface TodoItem {

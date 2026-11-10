@@ -3,6 +3,7 @@ import type {
   Config,
   FileEntry,
   Health,
+  IndexedFile,
   PermissionResolvedData,
   QuestionAnswer,
   Repo,
@@ -94,6 +95,10 @@ export const api = {
   files: (id: string, path = '') =>
     request<{ root: string; path: string; entries: FileEntry[] }>(
       `/api/sessions/${id}/files?path=${encodeURIComponent(path)}`,
+    ),
+  searchFiles: (id: string, query: string) =>
+    request<{ files: IndexedFile[] }>(
+      `/api/sessions/${id}/files/search?q=${encodeURIComponent(query)}`,
     ),
   file: (id: string, path: string) =>
     request<{ root: string; path: string; content: string; truncated: boolean }>(

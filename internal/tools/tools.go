@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/weftdesk/weft/internal/index"
 	"github.com/weftdesk/weft/internal/provider"
 )
 
@@ -50,6 +51,7 @@ func NewRegistry(roots []string) *Registry {
 		&writeFile{base: b},
 		&editFile{base: b},
 		&globFiles{base: b},
+		&findFiles{base: b},
 		&grepFiles{base: b},
 		&runCommand{base: b},
 	} {
@@ -176,24 +178,8 @@ func within(root, path string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-var ignoredDirs = map[string]bool{
-	".git":         true,
-	".hg":          true,
-	".svn":         true,
-	".weft":        true,
-	"node_modules": true,
-	"vendor":       true,
-	"target":       true,
-	"dist":         true,
-	"build":        true,
-	"out":          true,
-	".next":        true,
-	".nuxt":        true,
-	".turbo":       true,
-	".cache":       true,
-	"coverage":     true,
-	"__pycache__":  true,
-	".venv":        true,
+func ignoredDir(name string) bool {
+	return index.Ignored(name)
 }
 
 func (b *base) walk(start string, fn func(path string, info os.FileInfo) error) error {
@@ -202,7 +188,7 @@ func (b *base) walk(start string, fn func(path string, info os.FileInfo) error) 
 			return nil
 		}
 		if info.IsDir() {
-			if path != start && ignoredDirs[strings.ToLower(info.Name())] {
+			if path != start && ignoredDir(info.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
