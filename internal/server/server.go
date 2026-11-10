@@ -347,7 +347,7 @@ func (s *Server) attachWorktree(sess *domain.Session) error {
 	}
 	repo := repos[0]
 	branch := "weft/" + sess.ID[:8]
-	dir := filepath.Join(s.cfg.DataDir, "worktrees", sess.ID)
+	dir := filepath.Join(s.cfg.DataDir, "worktrees", filepath.Base(repo.Root)+"-"+sess.ID[:8])
 	if err := worktree.Create(repo.Root, dir, branch); err != nil {
 		return err
 	}

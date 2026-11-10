@@ -48,6 +48,14 @@ function saveSessionTabs(tabs: SessionTabsByWorkspace) {
   localStorage.setItem(STORAGE.tabs, JSON.stringify(tabs))
 }
 
+function sessionFolders(workspace: Workspace, session: Session) {
+  const worktree = session.worktree
+  if (!worktree) return workspace.folders
+  return workspace.folders.map((folder) =>
+    folder.id === worktree.folderId ? { ...folder, path: worktree.path } : folder,
+  )
+}
+
 export default function App() {
   const [health, setHealth] = useState<Health | null>(null)
   const [config, setConfig] = useState<Config | null>(null)
@@ -640,7 +648,7 @@ export default function App() {
                   <FilesPanel
                     key={activeSession.id}
                     sessionId={activeSession.id}
-                    folders={activeWorkspace.folders}
+                    folders={sessionFolders(activeWorkspace, activeSession)}
                     onNotify={notify}
                   />
                 )}
