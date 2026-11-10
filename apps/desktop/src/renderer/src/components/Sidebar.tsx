@@ -32,10 +32,27 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <div className="brand">
-        <svg className="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
-          <path d="M3.5 8.5c4.5-4 12.5 4 17 0" />
-          <path d="M3.5 15.5c4.5-4 12.5 4 17 0" />
-          <path d="M12 4v16" opacity=".35" />
+        <svg className="brand-mark" viewBox="0 0 256 256" role="img" aria-label="WeftDesk">
+          <defs>
+            <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor="#261A30" />
+              <stop offset="0.55" stopColor="#1A1120" />
+              <stop offset="1" stopColor="#120B16" />
+            </linearGradient>
+            <radialGradient id="glow" cx="0.5" cy="0.42" r="0.55">
+              <stop offset="0" stopColor="#F2B25C" stopOpacity="0.14" />
+              <stop offset="0.65" stopColor="#F2B25C" stopOpacity="0.04" />
+              <stop offset="1" stopColor="#120B16" stopOpacity="0" />
+            </radialGradient>
+            <linearGradient id="weft" gradientUnits="userSpaceOnUse" x1="54" y1="86" x2="202" y2="174">
+              <stop offset="0" stopColor="#F7C45F" />
+              <stop offset="1" stopColor="#EE8353" />
+            </linearGradient>
+          </defs>
+          <rect width="256" height="256" rx="58" fill="url(#tile)" />
+          <rect width="256" height="256" rx="58" fill="url(#glow)" />
+          <rect x="1" y="1" width="254" height="254" rx="57" fill="none" stroke="#FFFFFF" strokeOpacity="0.06" strokeWidth="2" />
+          <path d="M54 86 L91 174 L128 110 L165 174 L202 86" fill="none" stroke="url(#weft)" strokeWidth="30" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
         <span className="brand-name">WeftDesk</span>
       </div>

@@ -52,6 +52,18 @@ async function ensureServer(): Promise<void> {
   console.error('[weft] server did not become healthy')
 }
 
+function windowIcon(): string | undefined {
+  const file =
+    process.platform === 'win32'
+      ? 'weftdesk-icon.ico'
+      : process.platform === 'linux'
+        ? join('png', 'weftdesk-icon-256.png')
+        : null
+  if (!file) return undefined
+  const path = join(app.getAppPath(), 'resources', file)
+  return existsSync(path) ? path : undefined
+}
+
 function createWindow(): void {
   process.env.WEFT_SERVER_URL = SERVER_URL
   win = new BrowserWindow({
@@ -64,6 +76,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     backgroundColor: '#0d0f10',
     title: 'WeftDesk',
+    icon: windowIcon(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
