@@ -18,6 +18,7 @@ export function WorkspaceDialog({
   const [folders, setFolders] = useState<Array<{ name: string; path: string }>>([])
   const [manual, setManual] = useState('')
   const [busy, setBusy] = useState(false)
+  const desktop = !!window.weft
 
   const add = (path: string) => {
     const value = path.trim()
@@ -60,7 +61,11 @@ export function WorkspaceDialog({
   return (
     <Modal
       title="New workspace"
-      subtitle="A workspace can span several folders on this machine."
+      subtitle={
+        desktop
+          ? 'A workspace can span several folders on this machine.'
+          : 'A workspace can span several folders on the server machine.'
+      }
       onClose={onClose}
       footer={
         <>
@@ -84,9 +89,11 @@ export function WorkspaceDialog({
       <div className="folder-picker">
         <div className="folder-picker-head">
           <span>Folders</span>
-          <button className="link-btn" onClick={() => void browse()}>
-            <Icon name="folderPlus" size={14} /> Browse…
-          </button>
+          {desktop && (
+            <button className="link-btn" onClick={() => void browse()}>
+              <Icon name="folderPlus" size={14} /> Browse…
+            </button>
+          )}
         </div>
         {folders.map((folder) => (
           <div key={folder.path} className="folder-row">
@@ -102,7 +109,11 @@ export function WorkspaceDialog({
             </button>
           </div>
         ))}
-        {folders.length === 0 && <p className="panel-note">Add at least one folder to begin.</p>}
+        {folders.length === 0 && (
+          <p className="panel-note">
+            {desktop ? 'Add at least one folder to begin.' : 'Paste an absolute folder path on the server to begin.'}
+          </p>
+        )}
       </div>
 
       <div className="manual-add">

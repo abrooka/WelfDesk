@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -25,16 +26,17 @@ import (
 )
 
 type Server struct {
-	store *store.Store
-	agent *agent.Agent
+	store  *store.Store
+	agent  *agent.Agent
+	webDir string
 
 	cfgMu sync.RWMutex
 	cfg   config.Config
 	srv   *http.Server
 }
 
-func New(st *store.Store, ag *agent.Agent, cfg config.Config) *Server {
-	s := &Server{store: st, agent: ag, cfg: cfg}
+func New(st *store.Store, ag *agent.Agent, cfg config.Config, webDir string) *Server {
+	s := &Server{store: st, agent: ag, cfg: cfg, webDir: webDir}
 	s.srv = &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           s.Handler(),
@@ -74,9 +76,33 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/messages", s.postMessage)
 	mux.HandleFunc("POST /api/sessions/{id}/cancel", s.cancelRun)
 	mux.HandleFunc("POST /api/sessions/{id}/permissions/{requestId}", s.resolvePermission)
+	mux.HandleFunc("POST /api/sessions/{id}/questions/{requestId}", s.answerQuestion)
 	mux.HandleFunc("GET /api/sessions/{id}/files", s.listFiles)
 	mux.HandleFunc("GET /api/sessions/{id}/file", s.readWorkspaceFile)
+	mux.HandleFunc("GET /", s.serveWeb)
 	return withCORS(mux)
+}
+
+func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
+	if s.webDir == "" || strings.HasPrefix(r.URL.Path, "/api/") {
+		http.NotFound(w, r)
+		return
+	}
+	rel := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+	target := filepath.Join(s.webDir, filepath.FromSlash(rel))
+	if info, err := os.Stat(target); err == nil && !info.IsDir() {
+		if strings.HasPrefix(r.URL.Path, "/assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
+		http.ServeFile(w, r, target)
+		return
+	}
+	if rel != "" && strings.Contains(path.Base(rel), ".") {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+	http.ServeFile(w, r, filepath.Join(s.webDir, "index.html"))
 }
 
 func withCORS(next http.Handler) http.Handler {
@@ -454,6 +480,23 @@ func (s *Server) resolvePermission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.agent.ResolvePermission(id, requestID, body.Decision); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) answerQuestion(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	requestID := r.PathValue("requestId")
+	var body struct {
+		Answers []domain.QuestionAnswer `json:"answers"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.agent.AnswerQuestion(id, requestID, body.Answers); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

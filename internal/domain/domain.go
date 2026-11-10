@@ -70,6 +70,8 @@ const (
 	EventToolResult         = "tool.result"
 	EventPermissionRequest  = "permission.request"
 	EventPermissionResolved = "permission.resolved"
+	EventQuestionRequest    = "question.request"
+	EventQuestionResolved   = "question.resolved"
 	EventRequestStarted     = "request.started"
 	EventRequestCompleted   = "request.completed"
 	EventError              = "error"
@@ -110,6 +112,37 @@ type PermissionRequestData struct {
 type PermissionResolvedData struct {
 	RequestID string `json:"requestId"`
 	Decision  string `json:"decision"`
+}
+
+type QuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+type Question struct {
+	ID          string           `json:"id"`
+	Header      string           `json:"header,omitempty"`
+	Question    string           `json:"question"`
+	MultiSelect bool             `json:"multiSelect,omitempty"`
+	Options     []QuestionOption `json:"options"`
+}
+
+type QuestionRequestData struct {
+	RequestID  string     `json:"requestId"`
+	ToolCallID string     `json:"toolCallId"`
+	Questions  []Question `json:"questions"`
+}
+
+type QuestionAnswer struct {
+	QuestionID string   `json:"questionId"`
+	Selected   []string `json:"selected,omitempty"`
+	Custom     string   `json:"custom,omitempty"`
+}
+
+type QuestionResolvedData struct {
+	RequestID string           `json:"requestId"`
+	Answers   []QuestionAnswer `json:"answers,omitempty"`
+	Reason    string           `json:"reason,omitempty"`
 }
 
 type ErrorData struct {

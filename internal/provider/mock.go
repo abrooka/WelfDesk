@@ -20,9 +20,9 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 		}
 	}
 
-	// Tiny offline tool demos: "/read <path>" and "/bash <command>".
+	// Tiny offline tool demos: "/read <path>", "/bash <command>" and "/ask".
 	trimmed := strings.TrimSpace(last)
-	if strings.HasPrefix(trimmed, "/read ") || strings.HasPrefix(trimmed, "/bash ") {
+	if strings.HasPrefix(trimmed, "/read ") || strings.HasPrefix(trimmed, "/bash ") || trimmed == "/ask" {
 		go func() {
 			defer close(ch)
 			switch {
@@ -33,6 +33,18 @@ func (p *mockProvider) Stream(ctx context.Context, req Request) (<-chan Delta, e
 					ID:        "mock-read",
 					Name:      "read_file",
 					Arguments: `{"path":"` + escapeJSON(path) + `"}`,
+				}})
+			case trimmed == "/ask":
+				send(ctx, ch, Delta{Type: "text", Text: "I need a couple of decisions before continuing."})
+				send(ctx, ch, Delta{Type: "tool_call", ToolCall: &ToolCall{
+					ID:   "mock-ask",
+					Name: "ask_user",
+					Arguments: `{"questions":[` +
+						`{"id":"scope","header":"Scope","question":"Which part should change?","options":[` +
+						`{"label":"Desktop","description":"The Electron app in apps/desktop"},` +
+						`{"label":"Server","description":"The Go daemon in internal"}]},` +
+						`{"id":"extras","header":"Extras","question":"What should the change include?","multiSelect":true,"options":[` +
+						`{"label":"Tests"},{"label":"Preview"},{"label":"Notes"}]}]}`,
 				}})
 			default:
 				command := strings.TrimSpace(trimmed[len("/bash "):])

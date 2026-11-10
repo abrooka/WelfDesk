@@ -195,6 +195,87 @@ func emit(ctx context.Context, ch chan<- provider.Delta, delta provider.Delta) {
 	}
 }
 
+func TestAskUserReceivesAnswer(t *testing.T) {
+	ag, st, _, sessionID := permissionFixture(t, "ask")
+	ag.UpdateConfig(ag.Config(), &askProvider{})
+	if err := ag.Send(context.Background(), sessionID, "decide"); err != nil {
+		t.Fatal(err)
+	}
+	request := waitEvent(t, st, sessionID, domain.EventQuestionRequest)
+	var ask domain.QuestionRequestData
+	if err := decode(request.Data, &ask); err != nil {
+		t.Fatal(err)
+	}
+	if len(ask.Questions) != 2 || ask.Questions[0].ID != "scope" {
+		t.Fatalf("unexpected questions: %+v", ask.Questions)
+	}
+	answers := []domain.QuestionAnswer{
+		{QuestionID: "scope", Selected: []string{"Desktop"}},
+		{QuestionID: "extras", Custom: "One focused test"},
+	}
+	if err := ag.AnswerQuestion(sessionID, ask.RequestID, answers); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, st, sessionID)
+
+	resolved := waitEvent(t, st, sessionID, domain.EventQuestionResolved)
+	var resolution domain.QuestionResolvedData
+	if err := decode(resolved.Data, &resolution); err != nil {
+		t.Fatal(err)
+	}
+	if len(resolution.Answers) != 2 {
+		t.Fatalf("unexpected resolved answers: %+v", resolution.Answers)
+	}
+	result := waitEvent(t, st, sessionID, domain.EventToolResult)
+	var data domain.ToolResultData
+	if err := decode(result.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.IsError || !strings.Contains(data.Output, "Desktop") || !strings.Contains(data.Output, "custom: One focused test") {
+		t.Fatalf("unexpected ask_user result: %+v", data)
+	}
+}
+
+func TestAnswerQuestionUnknownRequest(t *testing.T) {
+	ag, _, _, sessionID := permissionFixture(t, "ask")
+	if err := ag.AnswerQuestion(sessionID, "missing", nil); err == nil {
+		t.Fatal("expected an error for an unknown question request")
+	}
+}
+
+type askProvider struct{}
+
+func (p *askProvider) Name() string { return "fake" }
+
+func (p *askProvider) Stream(ctx context.Context, req provider.Request) (<-chan provider.Delta, error) {
+	hasResult := false
+	for _, message := range req.Messages {
+		for _, block := range message.Content {
+			if block.Type == provider.BlockToolResult {
+				hasResult = true
+			}
+		}
+	}
+	ch := make(chan provider.Delta, 2)
+	go func() {
+		defer close(ch)
+		if hasResult {
+			emit(ctx, ch, provider.Delta{Type: "text", Text: "thanks"})
+		} else {
+			emit(ctx, ch, provider.Delta{Type: "tool_call", ToolCall: &provider.ToolCall{
+				ID:   "ask-1",
+				Name: "ask_user",
+				Arguments: `{"questions":[
+					{"id":"scope","header":"Scope","question":"Which part?","options":[{"label":"Desktop"},{"label":"Server"}]},
+					{"id":"extras","header":"Extras","question":"Anything else?","multiSelect":true,"options":[{"label":"Tests"},{"label":"Docs"}]}
+				]}`,
+			}})
+		}
+		emit(ctx, ch, provider.Delta{Type: "done"})
+	}()
+	return ch, nil
+}
+
 func waitEvent(t *testing.T, st *store.Store, sessionID, eventType string) domain.Event {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

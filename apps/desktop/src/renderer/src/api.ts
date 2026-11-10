@@ -3,13 +3,14 @@ import type {
   FileEntry,
   Health,
   PermissionResolvedData,
+  QuestionAnswer,
   RequestRecord,
   Session,
   WeftEvent,
   Workspace,
 } from './types'
 
-export const baseURL = window.weft?.serverURL ?? 'http://127.0.0.1:47123'
+export const baseURL = window.weft?.serverURL ?? ''
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${baseURL}${path}`, {
@@ -67,6 +68,11 @@ export const api = {
     request<PermissionResolvedData>(`/api/sessions/${sessionId}/permissions/${requestId}`, {
       method: 'POST',
       body: JSON.stringify({ decision }),
+    }),
+  answerQuestion: (sessionId: string, requestId: string, answers: QuestionAnswer[]) =>
+    request<{ ok: boolean }>(`/api/sessions/${sessionId}/questions/${requestId}`, {
+      method: 'POST',
+      body: JSON.stringify({ answers }),
     }),
 
   files: (id: string, path = '') =>

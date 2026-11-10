@@ -11,7 +11,8 @@ import { WorkspaceDialog } from './components/WorkspaceDialog'
 import { Icon } from './components/Icon'
 import { Toasts, type ToastItem } from './components/Toasts'
 import { useSessionStream } from './hooks/useSessionStream'
-import type { Config, Health, Session, WeftEvent, Workspace } from './types'
+import { applyTheme, currentTheme, type ThemeId } from './lib/theme'
+import type { Config, Health, QuestionAnswer, Session, WeftEvent, Workspace } from './types'
 
 type InspectorTab = 'outline' | 'requests' | 'files'
 
@@ -37,6 +38,19 @@ export default function App() {
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [requestRevision, setRequestRevision] = useState(0)
+  const [maximized, setMaximized] = useState(false)
+  const [theme, setTheme] = useState<ThemeId>(currentTheme)
+
+  const changeTheme = useCallback((id: ThemeId) => {
+    applyTheme(id)
+    setTheme(id)
+  }, [])
+
+  useEffect(() => {
+    if (!window.weft?.windowState) return
+    void window.weft.windowState().then((state) => setMaximized(state.maximized))
+    return window.weft.onWindowState((state) => setMaximized(state.maximized))
+  }, [])
 
   const notify = useCallback((text: string, tone: 'info' | 'error' = 'info') => {
     const id = Date.now() + Math.random()
@@ -244,6 +258,15 @@ export default function App() {
     }
   }
 
+  const answerQuestion = async (requestId: string, answers: QuestionAnswer[]) => {
+    if (!activeSessionId) return
+    try {
+      await api.answerQuestion(activeSessionId, requestId, answers)
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : 'Failed to submit answers', 'error')
+    }
+  }
+
   const reveal = (path: string) => {
     if (window.weft) {
       void window.weft.reveal(path).catch((cause: unknown) => {
@@ -345,6 +368,7 @@ export default function App() {
               <button className="icon-btn" onClick={() => setSettingsOpen(true)} title="Settings">
                 <Icon name="settings" size={16} />
               </button>
+              {window.weft?.windowControl && <WindowControls maximized={maximized} />}
             </div>
           </div>
         </header>
@@ -368,6 +392,7 @@ export default function App() {
                   loading={loading}
                   error={error}
                   onResolvePermission={resolvePermission}
+                  onAnswerQuestion={answerQuestion}
                   onReveal={reveal}
                   onCopy={copy}
                 />
@@ -458,6 +483,8 @@ export default function App() {
         <SettingsDialog
           config={config}
           health={health}
+          theme={theme}
+          onTheme={changeTheme}
           onClose={() => setSettingsOpen(false)}
           onSaved={(updated) => {
             setConfig(updated)
@@ -476,6 +503,30 @@ export default function App() {
       )}
 
       <Toasts items={toasts} onDismiss={dismissToast} />
+    </div>
+  )
+}
+
+function WindowControls({ maximized }: { maximized: boolean }) {
+  const control = (action: 'minimize' | 'toggle-maximize' | 'close') => {
+    void window.weft?.windowControl(action)
+  }
+  return (
+    <div className="window-controls">
+      <button className="window-btn" onClick={() => control('minimize')} title="Minimize" aria-label="Minimize">
+        <Icon name="minimize" size={14} />
+      </button>
+      <button
+        className="window-btn"
+        onClick={() => control('toggle-maximize')}
+        title={maximized ? 'Restore' : 'Maximize'}
+        aria-label={maximized ? 'Restore' : 'Maximize'}
+      >
+        <Icon name={maximized ? 'restore' : 'maximize'} size={13} />
+      </button>
+      <button className="window-btn close" onClick={() => control('close')} title="Close" aria-label="Close">
+        <Icon name="close" size={14} />
+      </button>
     </div>
   )
 }

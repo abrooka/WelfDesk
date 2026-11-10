@@ -60,6 +60,7 @@ function createWindow(): void {
     minWidth: 1080,
     minHeight: 680,
     show: false,
+    frame: false,
     autoHideMenuBar: true,
     backgroundColor: '#0d0f10',
     title: 'WeftDesk',
@@ -71,6 +72,8 @@ function createWindow(): void {
     },
   })
   win.once('ready-to-show', () => win?.show())
+  win.on('maximize', () => win?.webContents.send('weft:window-state', { maximized: true }))
+  win.on('unmaximize', () => win?.webContents.send('weft:window-state', { maximized: false }))
   win.on('closed', () => {
     win = null
   })
@@ -115,6 +118,25 @@ ipcMain.handle('weft:info', () => ({
   packaged: app.isPackaged,
   platform: process.platform,
 }))
+
+ipcMain.handle('weft:window', (_event, action: unknown) => {
+  if (!win) return { maximized: false }
+  switch (action) {
+    case 'minimize':
+      win.minimize()
+      break
+    case 'toggle-maximize':
+      if (win.isMaximized()) win.unmaximize()
+      else win.maximize()
+      break
+    case 'close':
+      win.close()
+      break
+  }
+  return { maximized: win.isMaximized() }
+})
+
+ipcMain.handle('weft:window-state', () => ({ maximized: win?.isMaximized() ?? false }))
 
 ipcMain.handle('weft:pick-folders', async () => {
   if (!win) return []

@@ -9,6 +9,10 @@ import type {
   ErrorData,
   PermissionRequestData,
   PermissionResolvedData,
+  Question,
+  QuestionAnswer,
+  QuestionRequestData,
+  QuestionResolvedData,
   ToolResultData,
   UserMessageData,
   WeftEvent,
@@ -21,11 +25,22 @@ interface Props {
   loading: boolean
   error: string | null
   onResolvePermission: (requestId: string, decision: 'allow' | 'deny') => Promise<void>
+  onAnswerQuestion: (requestId: string, answers: QuestionAnswer[]) => Promise<void>
   onReveal: (path: string) => void
   onCopy: (text: string) => void
 }
 
-export function Timeline({ events, live, running, loading, error, onResolvePermission, onReveal, onCopy }: Props) {
+export function Timeline({
+  events,
+  live,
+  running,
+  loading,
+  error,
+  onResolvePermission,
+  onAnswerQuestion,
+  onReveal,
+  onCopy,
+}: Props) {
   const scroll = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   const [showJump, setShowJump] = useState(false)
@@ -50,11 +65,21 @@ export function Timeline({ events, live, running, loading, error, onResolvePermi
     return resolved
   }, [events])
 
+  const questionResolutions = useMemo(() => {
+    const resolved = new Map<string, QuestionResolvedData>()
+    for (const event of events) {
+      if (event.type !== 'question.resolved') continue
+      const data = event.data as QuestionResolvedData | undefined
+      if (data?.requestId) resolved.set(data.requestId, data)
+    }
+    return resolved
+  }, [events])
+
   const lastVisible = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) {
       const event = events[i]
       if (event.type === 'user.message' || event.type === 'assistant.message' || event.type === 'error') return event
-      if (event.type === 'tool.call' || event.type === 'permission.request') return event
+      if (event.type === 'tool.call' || event.type === 'permission.request' || event.type === 'question.request') return event
     }
     return null
   }, [events])
@@ -120,6 +145,7 @@ export function Timeline({ events, live, running, loading, error, onResolvePermi
             case 'tool.call': {
               const data = event.data as { id: string; name: string; arguments: string }
               if (!data) return null
+              if (data.name === 'ask_user') return null
               const result = toolResults.get(data.id)
               return (
                 <div key={event.id} id={`ev-${event.id}`} className="timeline-item tool-item">
@@ -144,6 +170,19 @@ export function Timeline({ events, live, running, loading, error, onResolvePermi
                     data={data}
                     decision={decision}
                     onResolve={onResolvePermission}
+                  />
+                </div>
+              )
+            }
+            case 'question.request': {
+              const data = event.data as QuestionRequestData
+              if (!data) return null
+              return (
+                <div key={event.id} id={`ev-${event.id}`} className="timeline-item">
+                  <QuestionCard
+                    data={data}
+                    resolved={questionResolutions.get(data.requestId)}
+                    onAnswer={onAnswerQuestion}
                   />
                 </div>
               )
@@ -413,6 +452,160 @@ function PermissionCard({
             </button>
           </div>
         </>
+      )}
+    </div>
+  )
+}
+
+type QuestionDraft = Record<string, { selected: string[]; custom: string }>
+
+function QuestionCard({
+  data,
+  resolved,
+  onAnswer,
+}: {
+  data: QuestionRequestData
+  resolved?: QuestionResolvedData
+  onAnswer: (requestId: string, answers: QuestionAnswer[]) => Promise<void>
+}) {
+  const [draft, setDraft] = useState<QuestionDraft>({})
+  const [busy, setBusy] = useState(false)
+
+  const answered = useMemo(() => {
+    const map = new Map<string, QuestionAnswer>()
+    for (const answer of resolved?.answers ?? []) map.set(answer.questionId, answer)
+    return map
+  }, [resolved])
+
+  const isReady = data.questions.every((question) => {
+    const entry = draft[question.id]
+    return !!entry && (entry.selected.length > 0 || entry.custom.trim() !== '')
+  })
+
+  const toggle = (question: Question, label: string) => {
+    setDraft((current) => {
+      const previous = current[question.id] ?? { selected: [], custom: '' }
+      let selected: string[]
+      if (question.multiSelect) {
+        selected = previous.selected.includes(label)
+          ? previous.selected.filter((item) => item !== label)
+          : [...previous.selected, label]
+      } else {
+        selected = previous.selected.includes(label) ? [] : [label]
+      }
+      return { ...current, [question.id]: { ...previous, selected } }
+    })
+  }
+
+  const typeCustom = (questionId: string, custom: string) => {
+    setDraft((current) => {
+      const previous = current[questionId] ?? { selected: [], custom: '' }
+      return { ...current, [questionId]: { ...previous, custom } }
+    })
+  }
+
+  const submit = async () => {
+    if (!isReady || busy) return
+    setBusy(true)
+    try {
+      await onAnswer(
+        data.requestId,
+        data.questions.map((question) => {
+          const entry = draft[question.id]
+          return {
+            questionId: question.id,
+            selected: entry?.selected.length ? entry.selected : undefined,
+            custom: entry?.custom.trim() || undefined,
+          }
+        }),
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className={`question-card ${resolved ? 'resolved' : 'pending'}`}>
+      <div className="question-head">
+        <span className="question-icon">
+          <Icon name={resolved ? 'check' : 'message'} size={15} />
+        </span>
+        <div className="question-title">
+          <strong>{resolved ? 'Answers received' : 'Weft needs your input'}</strong>
+          <span>
+            {data.questions.length} question{data.questions.length === 1 ? '' : 's'}
+            {resolved ? '' : ' · pick an option or type your own'}
+          </span>
+        </div>
+        {resolved && (
+          <span className={`decision-chip ${resolved.reason ? 'deny' : 'allow'}`}>
+            <Icon name={resolved.reason ? 'close' : 'check'} size={12} />
+            {resolved.reason ? 'expired' : 'answered'}
+          </span>
+        )}
+      </div>
+
+      <div className="question-list">
+        {data.questions.map((question) => {
+          const answer = answered.get(question.id)
+          return (
+            <div key={question.id} className="question-item">
+              <div className="question-text">
+                {question.header && <span className="question-tag">{question.header}</span>}
+                <span>{question.question}</span>
+                {question.multiSelect && !resolved && <em>Select all that apply</em>}
+              </div>
+
+              {resolved ? (
+                <div className="question-answer">
+                  {(answer?.selected ?? []).map((label) => (
+                    <span key={label} className="answer-chip">{label}</span>
+                  ))}
+                  {answer?.custom && <span className="answer-chip custom">{answer.custom}</span>}
+                  {!answer?.selected?.length && !answer?.custom && <span className="question-none">No answer</span>}
+                </div>
+              ) : (
+                <>
+                  <div className="question-options">
+                    {question.options.map((option) => {
+                      const active = draft[question.id]?.selected.includes(option.label) ?? false
+                      return (
+                        <button
+                          key={option.label}
+                          className={`question-option ${active ? 'active' : ''}`}
+                          onClick={() => toggle(question, option.label)}
+                        >
+                          <span className="option-mark">{active && <Icon name="check" size={11} />}</span>
+                          <span className="option-body">
+                            <strong>{option.label}</strong>
+                            {option.description && <span>{option.description}</span>}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <input
+                    className="question-custom"
+                    placeholder="Or type your own answer"
+                    value={draft[question.id]?.custom ?? ''}
+                    onChange={(event) => typeCustom(question.id, event.target.value)}
+                  />
+                </>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {resolved?.reason && <p className="question-reason">{resolved.reason}</p>}
+
+      {!resolved && (
+        <div className="permission-actions">
+          <span className="question-hint">{isReady ? 'Ready to send' : 'Answer every question to continue'}</span>
+          <button className="btn primary" disabled={!isReady || busy} onClick={() => void submit()}>
+            {busy ? 'Sending…' : 'Submit answers'}
+          </button>
+        </div>
       )}
     </div>
   )

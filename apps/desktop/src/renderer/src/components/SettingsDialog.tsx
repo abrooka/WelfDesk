@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { THEMES, type ThemeId } from '../lib/theme'
 import { Icon } from './Icon'
 import { Modal } from './Modal'
 import type { Config, Health } from '../types'
@@ -25,12 +26,16 @@ const PERMISSION_MODES = [
 export function SettingsDialog({
   config,
   health,
+  theme,
+  onTheme,
   onClose,
   onSaved,
   onNotify,
 }: {
   config: Config | null
   health: Health | null
+  theme: ThemeId
+  onTheme: (id: ThemeId) => void
   onClose: () => void
   onSaved: (config: Config) => void
   onNotify: (text: string, tone?: 'info' | 'error') => void
@@ -176,6 +181,42 @@ export function SettingsDialog({
           )}
         </section>
       </div>
+
+      <section className="settings-section settings-appearance">
+        <h3>Appearance</h3>
+        <p className="settings-hint">Theme applies immediately and is saved on this device.</p>
+        <div className="theme-grid">
+          {THEMES.map((item) => (
+            <button
+              key={item.id}
+              className={`theme-card ${theme === item.id ? 'active' : ''}`}
+              onClick={() => onTheme(item.id)}
+            >
+              <span
+                className="theme-preview"
+                style={{ background: item.swatch.bg, borderColor: item.swatch.line }}
+              >
+                <span
+                  className="theme-preview-side"
+                  style={{ background: item.swatch.panel, borderColor: item.swatch.line }}
+                />
+                <span className="theme-preview-body">
+                  <span className="theme-preview-line" style={{ background: item.swatch.line }} />
+                  <span className="theme-preview-line short" style={{ background: item.swatch.line }} />
+                  <span className="theme-preview-chip" style={{ background: item.swatch.accent }} />
+                </span>
+              </span>
+              <span className="theme-copy">
+                <strong>
+                  {item.label}
+                  {theme === item.id && <Icon name="check" size={12} />}
+                </strong>
+                <span>{item.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
     </Modal>
   )
 }

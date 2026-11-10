@@ -53,15 +53,24 @@ type Agent struct {
 
 	permMu  sync.Mutex
 	pending map[string]chan string
+
+	qMu       sync.Mutex
+	questions map[string]pendingQuestion
+}
+
+type pendingQuestion struct {
+	sessionID string
+	ch        chan []domain.QuestionAnswer
 }
 
 func New(st *store.Store, cfg config.Config, prov provider.Provider) *Agent {
 	return &Agent{
-		store:   st,
-		cfg:     cfg,
-		prov:    prov,
-		runs:    map[string]context.CancelFunc{},
-		pending: map[string]chan string{},
+		store:     st,
+		cfg:       cfg,
+		prov:      prov,
+		runs:      map[string]context.CancelFunc{},
+		pending:   map[string]chan string{},
+		questions: map[string]pendingQuestion{},
 	}
 }
 
@@ -196,7 +205,7 @@ func (a *Agent) loop(ctx context.Context, sessionID string) {
 	}
 	registry := tools.NewRegistry(roots)
 	system := systemPrompt(ws)
-	toolDefs := registry.Definitions()
+	toolDefs := append(registry.Definitions(), askUserTool())
 
 	for turn := 0; turn < cfg.MaxTurns; turn++ {
 		history, err := a.history(sessionID)
@@ -324,6 +333,11 @@ func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, regist
 	result := domain.ToolResultData{ToolCallID: call.ID, Name: call.Name}
 	started := time.Now()
 
+	if call.Name == "ask_user" {
+		a.askUser(ctx, sessionID, runID, call, &result, started)
+		return
+	}
+
 	allowed, reason := a.authorize(ctx, sessionID, runID, call)
 	if !allowed {
 		result.IsError = true
@@ -351,6 +365,172 @@ func (a *Agent) executeTool(ctx context.Context, sessionID, runID string, regist
 	}
 	result.DurationMs = time.Since(started).Milliseconds()
 	_, _ = a.store.Append(sessionID, domain.EventToolResult, runID, result)
+}
+
+func (a *Agent) askUser(ctx context.Context, sessionID, runID string, call provider.ToolCall, result *domain.ToolResultData, started time.Time) {
+	finish := func() {
+		if len(result.Output) > 100_000 {
+			result.Output = result.Output[:100_000] + "\n… output truncated"
+		}
+		result.DurationMs = time.Since(started).Milliseconds()
+		_, _ = a.store.Append(sessionID, domain.EventToolResult, runID, *result)
+	}
+	fail := func(message string) {
+		result.IsError = true
+		result.Output = message
+		finish()
+	}
+
+	var in struct {
+		Questions []domain.Question `json:"questions"`
+	}
+	if err := json.Unmarshal([]byte(call.Arguments), &in); err != nil {
+		fail("ask_user arguments are invalid: " + err.Error())
+		return
+	}
+	if len(in.Questions) == 0 {
+		fail("ask_user requires at least one question")
+		return
+	}
+	if len(in.Questions) > 8 {
+		in.Questions = in.Questions[:8]
+	}
+	for i := range in.Questions {
+		if strings.TrimSpace(in.Questions[i].ID) == "" {
+			in.Questions[i].ID = fmt.Sprintf("q%d", i+1)
+		}
+	}
+
+	reqID := newID()
+	ch := make(chan []domain.QuestionAnswer, 1)
+	a.qMu.Lock()
+	a.questions[reqID] = pendingQuestion{sessionID: sessionID, ch: ch}
+	a.qMu.Unlock()
+	defer func() {
+		a.qMu.Lock()
+		delete(a.questions, reqID)
+		a.qMu.Unlock()
+	}()
+
+	_, _ = a.store.Append(sessionID, domain.EventQuestionRequest, runID, domain.QuestionRequestData{
+		RequestID:  reqID,
+		ToolCallID: call.ID,
+		Questions:  in.Questions,
+	})
+
+	timeout := time.NewTimer(10 * time.Minute)
+	defer timeout.Stop()
+
+	var answers []domain.QuestionAnswer
+	reason := ""
+	select {
+	case answers = <-ch:
+	case <-ctx.Done():
+		reason = "Run cancelled."
+	case <-timeout.C:
+		reason = "Question request timed out."
+	}
+	if reason != "" {
+		_, _ = a.store.Append(sessionID, domain.EventQuestionResolved, runID, domain.QuestionResolvedData{
+			RequestID: reqID,
+			Reason:    reason,
+		})
+		fail(reason)
+		return
+	}
+	_, _ = a.store.Append(sessionID, domain.EventQuestionResolved, runID, domain.QuestionResolvedData{
+		RequestID: reqID,
+		Answers:   answers,
+	})
+	result.Output = formatAnswers(in.Questions, answers)
+	finish()
+}
+
+func (a *Agent) AnswerQuestion(sessionID, requestID string, answers []domain.QuestionAnswer) error {
+	a.qMu.Lock()
+	pending, ok := a.questions[requestID]
+	a.qMu.Unlock()
+	if !ok || pending.sessionID != sessionID {
+		return errors.New("question request is no longer pending")
+	}
+	select {
+	case pending.ch <- answers:
+		return nil
+	default:
+		return errors.New("question request already answered")
+	}
+}
+
+func formatAnswers(questions []domain.Question, answers []domain.QuestionAnswer) string {
+	byID := make(map[string]domain.QuestionAnswer, len(answers))
+	for _, answer := range answers {
+		byID[answer.QuestionID] = answer
+	}
+	var b strings.Builder
+	b.WriteString("User answers:")
+	for _, question := range questions {
+		label := strings.TrimSpace(question.Question)
+		if label == "" {
+			label = question.ID
+		}
+		var parts []string
+		if answer, ok := byID[question.ID]; ok {
+			for _, selected := range answer.Selected {
+				if strings.TrimSpace(selected) != "" {
+					parts = append(parts, selected)
+				}
+			}
+			if custom := strings.TrimSpace(answer.Custom); custom != "" {
+				parts = append(parts, "custom: "+custom)
+			}
+		}
+		if len(parts) == 0 {
+			parts = []string{"(no answer)"}
+		}
+		fmt.Fprintf(&b, "\n- %s: %s", label, strings.Join(parts, "; "))
+	}
+	return b.String()
+}
+
+func askUserTool() provider.Tool {
+	return provider.Tool{
+		Name:        "ask_user",
+		Description: "Ask the user one or more questions when a decision, preference or missing detail blocks progress. Offer concrete options and let the user pick or type their own answer.",
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"questions": map[string]any{
+					"type":     "array",
+					"minItems": 1,
+					"maxItems": 4,
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"id":          map[string]any{"type": "string", "description": "Stable identifier used in the answers."},
+							"header":      map[string]any{"type": "string", "description": "Very short label, at most 12 characters."},
+							"question":    map[string]any{"type": "string", "description": "The question to ask."},
+							"multiSelect": map[string]any{"type": "boolean", "description": "Allow selecting more than one option."},
+							"options": map[string]any{
+								"type":     "array",
+								"minItems": 2,
+								"maxItems": 4,
+								"items": map[string]any{
+									"type": "object",
+									"properties": map[string]any{
+										"label":       map[string]any{"type": "string"},
+										"description": map[string]any{"type": "string"},
+									},
+									"required": []string{"label"},
+								},
+							},
+						},
+						"required": []string{"question", "options"},
+					},
+				},
+			},
+			"required": []string{"questions"},
+		},
+	}
 }
 
 func (a *Agent) authorize(ctx context.Context, sessionID, runID string, call provider.ToolCall) (bool, string) {

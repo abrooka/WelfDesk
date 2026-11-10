@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WeftDesk</title>
+    <script>
+      (() => {
+        const themes = ['ember', 'graphite', 'moss', 'dusk', 'parchment']
+        let theme = 'ember'
+        try {
+          const saved = localStorage.getItem('weft.theme')
+          if (themes.includes(saved)) theme = saved
+        } catch {}
+        document.documentElement.dataset.theme = theme
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

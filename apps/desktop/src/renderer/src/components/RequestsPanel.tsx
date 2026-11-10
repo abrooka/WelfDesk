@@ -83,11 +83,11 @@ export function RequestsPanel({ sessionId, revision }: { sessionId: string; revi
                     <span>{record.started.tools.length} tools</span>
                     <button
                       className="mini-btn"
-                      onClick={() =>
-                        void window.weft?.copyText(
-                          JSON.stringify(tab === 'request' ? record.started : record.result ?? {}, null, 2),
-                        )
-                      }
+                      onClick={() => {
+                        const text = JSON.stringify(tab === 'request' ? record.started : record.result ?? {}, null, 2)
+                        if (window.weft) void window.weft.copyText(text)
+                        else void navigator.clipboard.writeText(text)
+                      }}
                     >
                       <Icon name="copy" size={12} /> Copy
                     </button>

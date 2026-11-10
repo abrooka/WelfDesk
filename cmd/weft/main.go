@@ -54,6 +54,7 @@ Server flags:
   --data-dir <dir>      data directory
   --listen <addr>       listen address (default 127.0.0.1:47123)
   --port <port>         listen port on 127.0.0.1
+  --web <dir>           serve the built web UI from this directory
   --permission <mode>   ask | acceptEdits | yolo (default ask)
   --provider <kind>     mock | openai | openai-compatible | anthropic
   --base-url <url>      provider base URL
@@ -70,6 +71,7 @@ func runServer(args []string) error {
 		dataDir    = fs.String("data-dir", "", "data directory")
 		listen     = fs.String("listen", "", "listen address")
 		port       = fs.Int("port", 0, "listen port")
+		web        = fs.String("web", "", "serve the built web UI from this directory")
 		permission = fs.String("permission", "", "permission mode")
 		provKind   = fs.String("provider", "", "provider kind")
 		baseURL    = fs.String("base-url", "", "provider base URL")
@@ -122,6 +124,25 @@ func runServer(args []string) error {
 	}
 	config.Normalize(&cfg)
 
+	webDir := *web
+	if webDir == "" {
+		webDir = os.Getenv("WEFT_WEB_DIR")
+	}
+	if webDir != "" {
+		abs, err := filepath.Abs(webDir)
+		if err != nil {
+			return err
+		}
+		info, err := os.Stat(abs)
+		if err != nil {
+			return fmt.Errorf("web dir: %w", err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("web dir %s is not a directory", abs)
+		}
+		webDir = abs
+	}
+
 	prov, err := provider.New(cfg.Provider)
 	if err != nil {
 		return err
@@ -133,13 +154,16 @@ func runServer(args []string) error {
 	defer st.Close()
 
 	ag := agent.New(st, cfg, prov)
-	srv := server.New(st, ag, cfg)
+	srv := server.New(st, ag, cfg, webDir)
 
 	banner := []string{
 		fmt.Sprintf("Weft %s", config.Version),
 		fmt.Sprintf("data    %s", cfg.DataDir),
 		fmt.Sprintf("listen  http://%s", cfg.Listen),
 		fmt.Sprintf("model   %s (%s)", cfg.Provider.Model, prov.Name()),
+	}
+	if webDir != "" {
+		banner = append(banner, fmt.Sprintf("web     %s", webDir))
 	}
 	if cfg.Provider.Kind != "mock" && cfg.Provider.APIKey == "" {
 		banner = append(banner, "warning provider API key is not set")

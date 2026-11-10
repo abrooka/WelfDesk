@@ -70,6 +70,37 @@ export interface PermissionResolvedData {
   decision: 'allow' | 'deny'
 }
 
+export interface QuestionOption {
+  label: string
+  description?: string
+}
+
+export interface Question {
+  id: string
+  header?: string
+  question: string
+  multiSelect?: boolean
+  options: QuestionOption[]
+}
+
+export interface QuestionRequestData {
+  requestId: string
+  toolCallId: string
+  questions: Question[]
+}
+
+export interface QuestionAnswer {
+  questionId: string
+  selected?: string[]
+  custom?: string
+}
+
+export interface QuestionResolvedData {
+  requestId: string
+  answers?: QuestionAnswer[]
+  reason?: string
+}
+
 export interface ErrorData {
   message: string
 }
@@ -132,6 +163,10 @@ export interface MainInfo {
   platform: string
 }
 
+export interface WindowState {
+  maximized: boolean
+}
+
 export interface WeftBridge {
   serverURL: string
   platform: string
@@ -141,6 +176,9 @@ export interface WeftBridge {
   copyText(text: string): Promise<void>
   openExternal(url: string): Promise<void>
   openWith(target: string, path: string): Promise<void>
+  windowControl(action: 'minimize' | 'toggle-maximize' | 'close'): Promise<WindowState>
+  windowState(): Promise<WindowState>
+  onWindowState(callback: (state: WindowState) => void): () => void
 }
 
 declare global {

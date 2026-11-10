@@ -115,6 +115,14 @@ const icons: Record<string, ReactNode> = {
       <path d="M15 4.5v15" />
     </>
   ),
+  minimize: <path d="M5 12h14" />,
+  maximize: <rect x="5.5" y="5.5" width="13" height="13" rx="1.5" />,
+  restore: (
+    <>
+      <rect x="5.5" y="8.5" width="10" height="10" rx="1.5" />
+      <path d="M8.5 8.5v-3h10v10h-3" />
+    </>
+  ),
 }
 
 export function Icon({ name, size = 16, className }: { name: string; size?: number; className?: string }) {

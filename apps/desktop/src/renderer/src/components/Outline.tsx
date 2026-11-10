@@ -4,6 +4,7 @@ import { firstLine, toolSummary } from '../lib/format'
 import type {
   AssistantMessageData,
   PermissionRequestData,
+  QuestionRequestData,
   ToolCallData,
   UserMessageData,
   WeftEvent,
@@ -19,10 +20,12 @@ export function Outline({ events }: { events: WeftEvent[] }) {
   const [query, setQuery] = useState('')
   const [openTools, setOpenTools] = useState(true)
   const [openApprovals, setOpenApprovals] = useState(true)
+  const [openQuestions, setOpenQuestions] = useState(true)
   const [openMessages, setOpenMessages] = useState(true)
 
   const sections = useMemo(() => {
     const messages: Entry[] = []
+    const questions: Entry[] = []
     const approvals: Entry[] = []
     const tools: Entry[] = []
     for (const event of events) {
@@ -32,6 +35,14 @@ export function Outline({ events }: { events: WeftEvent[] }) {
       } else if (event.type === 'assistant.message') {
         const data = event.data as AssistantMessageData
         if (data?.text) messages.push({ id: event.id, label: firstLine(data.text, 80), meta: 'Weft' })
+      } else if (event.type === 'question.request') {
+        const data = event.data as QuestionRequestData
+        const first = data?.questions?.[0]
+        questions.push({
+          id: event.id,
+          label: firstLine(first?.question ?? 'Question', 80),
+          meta: data?.questions?.length === 1 ? 'Question' : `${data?.questions?.length ?? 0} questions`,
+        })
       } else if (event.type === 'permission.request') {
         const data = event.data as PermissionRequestData
         approvals.push({
@@ -41,6 +52,7 @@ export function Outline({ events }: { events: WeftEvent[] }) {
         })
       } else if (event.type === 'tool.call') {
         const data = event.data as ToolCallData
+        if (data?.name === 'ask_user') continue
         tools.push({
           id: event.id,
           label: toolSummary(data?.name ?? '', data?.arguments),
@@ -48,7 +60,7 @@ export function Outline({ events }: { events: WeftEvent[] }) {
         })
       }
     }
-    return { messages, approvals, tools }
+    return { messages, questions, approvals, tools }
   }, [events])
 
   const filter = (list: Entry[]) =>
@@ -71,6 +83,13 @@ export function Outline({ events }: { events: WeftEvent[] }) {
           icon="message"
         />
         <Section
+          title="Questions"
+          entries={filter(sections.questions)}
+          open={openQuestions}
+          onToggle={() => setOpenQuestions((value) => !value)}
+          icon="message"
+        />
+        <Section
           title="Approvals"
           entries={filter(sections.approvals)}
           open={openApprovals}
@@ -85,7 +104,10 @@ export function Outline({ events }: { events: WeftEvent[] }) {
           onToggle={() => setOpenTools((value) => !value)}
           icon="terminal"
         />
-        {!sections.messages.length && !sections.tools.length && !sections.approvals.length && (
+        {!sections.messages.length &&
+          !sections.questions.length &&
+          !sections.tools.length &&
+          !sections.approvals.length && (
           <p className="outline-empty">Messages and tool calls will appear here as the session grows.</p>
         )}
       </div>
