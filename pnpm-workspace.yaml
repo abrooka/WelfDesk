@@ -1,0 +1,7 @@
+packages:
+  - apps/*
+minimumReleaseAgeExclude:
+  - vite@7.3.8
+allowBuilds:
+  electron: true
+  esbuild: true

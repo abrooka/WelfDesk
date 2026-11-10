@@ -1,0 +1,19 @@
+# Go
+/bin/
+*.exe
+*.test
+*.out
+
+# Node
+node_modules/
+apps/desktop/out/
+apps/desktop/dist/
+.vite/
+
+# Local runtime data
+.weft/
+.weft-data/
+
+# OS
+.DS_Store
+Thumbs.db
