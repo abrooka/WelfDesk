@@ -7,7 +7,7 @@
 # Node
 node_modules/
 apps/desktop/out/
-apps/desktop/dist/
+dist/
 .vite/
 
 # Local runtime data

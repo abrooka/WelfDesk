@@ -8,6 +8,7 @@
     "dev:ui": "pnpm --filter @weft/desktop dev",
     "build": "pnpm --filter @weft/desktop build",
     "build:server": "node scripts/build-server.mjs",
+    "dist": "node scripts/build-server.mjs && pnpm build && pnpm --filter @weft/desktop dist",
     "typecheck": "pnpm --filter @weft/desktop typecheck"
   }
 }

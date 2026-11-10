@@ -201,6 +201,9 @@ ipcMain.handle('weft:open-with', async (_event, target: unknown, path: unknown) 
   }
 })
 
+// The app name also decides the userData folder, so packaged builds get their own profile.
+if (app.isPackaged) app.setName('WeftDesk')
+
 const locked = app.requestSingleInstanceLock()
 if (!locked) {
   app.quit()
